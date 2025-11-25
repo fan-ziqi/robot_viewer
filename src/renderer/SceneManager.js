@@ -99,6 +99,10 @@ export class SceneManager {
         this.currentModel = null;
         this.ignoreLimits = false;
 
+        // Ground plane control
+        this.fixedGround = false;  // false: auto-adjust to lowest point, true: fixed at current position
+        this.fixedGroundY = 0;  // Store fixed ground Y position
+
         // Drag controls
         this.dragControls = null;
 
@@ -350,7 +354,15 @@ export class SceneManager {
         // Update ground position to model lowest point (robot touches ground)
         let groundChanged = false;
         if (this.groundPlane) {
-            const newGroundY = minY;  // Move ground to robot lowest point
+            let newGroundY;
+            if (this.fixedGround) {
+                // Fixed mode: use stored position
+                newGroundY = this.fixedGroundY;
+            } else {
+                // Auto mode: move ground to robot lowest point
+                newGroundY = minY;
+            }
+            
             const oldGroundY = this.groundPlane.position.y;
             this.groundPlane.position.y = newGroundY;
 
@@ -497,6 +509,29 @@ export class SceneManager {
             this.groundPlane.visible = visible;
             this.redraw();
         }
+    }
+
+    /**
+     * Toggle fixed ground mode
+     * @param {boolean} fixed - true: fixed at current position, false: auto-adjust to lowest point
+     */
+    setFixedGround(fixed) {
+        this.fixedGround = fixed;
+        
+        if (fixed && this.groundPlane) {
+            // Store current ground position when switching to fixed mode
+            this.fixedGroundY = this.groundPlane.position.y;
+        }
+        
+        // Update environment to apply new setting
+        this.updateEnvironment(false);
+    }
+
+    /**
+     * Get current fixed ground state
+     */
+    isGroundFixed() {
+        return this.fixedGround;
     }
 
     /**

@@ -1,0 +1,2157 @@
+/**
+ * BasePoseControlsUI - Base pose control UI module
+ * Responsible for creating and managing base pose control sliders (roll, pitch, yaw, x, y, z)
+ */
+import * as THREE from 'three';
+import { ModelLoaderFactory } from '../loaders/ModelLoaderFactory.js';
+
+export class BasePoseControlsUI {
+    constructor(sceneManager) {
+        this.sceneManager = sceneManager;
+        this.angleUnit = 'rad';
+        
+        // Base pose state
+        this.basePose = {
+            roll: 0,
+            pitch: 0,
+            yaw: 0,
+            x: 0,
+            y: 0,
+            z: 0
+        };
+        
+        // Frame time (seconds)
+        this.frameTime = 0.0;
+        
+        // Store current model reference
+        this.currentModel = null;
+        
+        // Store original base transform
+        this.originalBaseTransform = null;
+        
+        // Inject styles once
+        this.injectStyles();
+    }
+
+    /**
+     * Inject styles for base pose controls
+     */
+    injectStyles() {
+        // Check if styles already injected
+        if (document.getElementById('base-pose-controls-styles')) {
+            return;
+        }
+
+        const style = document.createElement('style');
+        style.id = 'base-pose-controls-styles';
+        style.textContent = `
+            /* Frame time input group */
+            .base-pose-frame-group {
+                margin-top: 16px;
+                padding: 12px;
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 10px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .base-pose-frame-label {
+                font-size: 12px;
+                font-weight: 600;
+                color: var(--text-secondary);
+                white-space: nowrap;
+            }
+
+            .base-pose-frame-input {
+                flex: 1;
+                padding: 6px 10px;
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 6px;
+                color: var(--text-primary);
+                font-size: 13px;
+                font-variant-numeric: tabular-nums;
+                transition: all 0.2s;
+                text-align: right;
+                font-weight: 500;
+            }
+
+            .base-pose-frame-input::-webkit-outer-spin-button,
+            .base-pose-frame-input::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
+            }
+
+            .base-pose-frame-input[type=number] {
+                -moz-appearance: textfield;
+                appearance: textfield;
+            }
+
+            .base-pose-frame-input:focus {
+                outline: none;
+                border-color: var(--accent);
+                background: rgba(255, 255, 255, 0.08);
+            }
+
+            .base-pose-frame-input:hover {
+                background: rgba(255, 255, 255, 0.06);
+                border-color: rgba(255, 255, 255, 0.2);
+            }
+
+            /* Frame slider container */
+            .base-pose-frame-slider-container {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                width: 100%;
+            }
+
+            .base-pose-frame-slider {
+                flex: 1;
+                height: 4px;
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 2px;
+                outline: none;
+                -webkit-appearance: none;
+                appearance: none;
+            }
+
+            .base-pose-frame-slider::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                appearance: none;
+                width: 14px;
+                height: 14px;
+                background: var(--accent);
+                border-radius: 50%;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+
+            .base-pose-frame-slider::-webkit-slider-thumb:hover {
+                transform: scale(1.2);
+                box-shadow: 0 0 8px rgba(10, 132, 255, 0.5);
+            }
+
+            .base-pose-frame-slider::-moz-range-thumb {
+                width: 14px;
+                height: 14px;
+                background: var(--accent);
+                border-radius: 50%;
+                cursor: pointer;
+                border: none;
+                transition: all 0.2s;
+            }
+
+            .base-pose-frame-slider::-moz-range-thumb:hover {
+                transform: scale(1.2);
+                box-shadow: 0 0 8px rgba(10, 132, 255, 0.5);
+            }
+
+            .base-pose-frame-slider:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+
+            .base-pose-frame-slider-value {
+                min-width: 60px;
+                text-align: right;
+                font-size: 12px;
+                font-weight: 500;
+                color: var(--text-secondary);
+                font-variant-numeric: tabular-nums;
+            }
+
+            /* Frame navigation buttons */
+            .frame-nav-btn {
+                min-width: 32px;
+                height: 32px;
+                padding: 0;
+                border-radius: 6px;
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                background: rgba(255, 255, 255, 0.06);
+                color: var(--text-primary);
+                cursor: pointer;
+                font-size: 14px;
+                transition: all 0.2s;
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .frame-nav-btn:hover:not(:disabled) {
+                background: rgba(255, 255, 255, 0.12);
+                border-color: rgba(255, 255, 255, 0.25);
+                transform: scale(1.05);
+            }
+
+            .frame-nav-btn:active:not(:disabled) {
+                transform: scale(0.95);
+            }
+
+            .frame-nav-btn:disabled {
+                opacity: 0.4;
+                cursor: not-allowed;
+            }
+
+            [data-theme="light"] .frame-nav-btn {
+                border-color: rgba(0, 0, 0, 0.15);
+                background: rgba(0, 0, 0, 0.04);
+            }
+
+            [data-theme="light"] .frame-nav-btn:hover:not(:disabled) {
+                background: rgba(0, 0, 0, 0.08);
+                border-color: rgba(0, 0, 0, 0.25);
+            }
+
+            /* Load frame button */
+            .load-frame-btn {
+                width: 100%;
+                padding: 10px;
+                margin-top: 8px;
+                background: rgba(10, 132, 255, 0.1);
+                border: 1px solid rgba(10, 132, 255, 0.3);
+                border-radius: 10px;
+                color: #0a84ff;
+                font-size: 12px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+
+            .load-frame-btn:hover {
+                background: rgba(10, 132, 255, 0.2);
+                border-color: rgba(10, 132, 255, 0.5);
+                transform: translateY(-1px);
+            }
+
+            .load-frame-btn:active {
+                transform: translateY(0);
+            }
+
+            .load-frame-btn:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+                transform: none;
+            }
+
+            /* Load frames button (for caching) */
+            .load-frames-btn {
+                width: 100%;
+                padding: 10px;
+                margin-top: 8px;
+                background: rgba(88, 86, 214, 0.1);
+                border: 1px solid rgba(88, 86, 214, 0.3);
+                border-radius: 10px;
+                color: #5856d6;
+                font-size: 12px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+
+            .load-frames-btn:hover:not(:disabled) {
+                background: rgba(88, 86, 214, 0.2);
+                border-color: rgba(88, 86, 214, 0.5);
+                transform: translateY(-1px);
+            }
+
+            .load-frames-btn:active:not(:disabled) {
+                transform: translateY(0);
+            }
+
+            .load-frames-btn:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+                transform: none;
+            }
+
+            /* Save frame button */
+            .save-frame-btn {
+                width: 100%;
+                padding: 10px;
+                margin-top: 8px;
+                background: rgba(76, 217, 100, 0.1);
+                border: 1px solid rgba(76, 217, 100, 0.3);
+                border-radius: 10px;
+                color: #4cd964;
+                font-size: 12px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+
+            .save-frame-btn:hover {
+                background: rgba(76, 217, 100, 0.2);
+                border-color: rgba(76, 217, 100, 0.5);
+                transform: translateY(-1px);
+            }
+
+            .save-frame-btn:active {
+                transform: translateY(0);
+            }
+
+            /* Interpolate frames button */
+            .interpolate-frames-btn {
+                width: 100%;
+                padding: 10px;
+                margin-top: 0;
+                background: rgba(255, 159, 10, 0.1);
+                border: 1px solid rgba(255, 159, 10, 0.3);
+                border-radius: 10px;
+                color: #ff9f0a;
+                font-size: 12px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+
+            .interpolate-frames-btn:hover:not(:disabled) {
+                background: rgba(255, 159, 10, 0.2);
+                border-color: rgba(255, 159, 10, 0.5);
+                transform: translateY(-1px);
+            }
+
+            .interpolate-frames-btn:active:not(:disabled) {
+                transform: translateY(0);
+            }
+
+            .interpolate-frames-btn:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+                transform: none;
+            }
+
+            /* Reset base pose button */
+            .reset-base-pose-btn {
+                width: 100%;
+                padding: 10px;
+                margin-top: 8px;
+                background: rgba(255, 59, 48, 0.1);
+                border: 1px solid rgba(255, 59, 48, 0.3);
+                border-radius: 10px;
+                color: #ff3b30;
+                font-size: 12px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+
+            .reset-base-pose-btn:hover {
+                background: rgba(255, 59, 48, 0.2);
+                border-color: rgba(255, 59, 48, 0.5);
+                transform: translateY(-1px);
+            }
+
+            .reset-base-pose-btn:active {
+                transform: translateY(0);
+            }
+
+            /* Scan folder button */
+            .scan-folder-btn {
+                width: 100%;
+                padding: 10px;
+                margin-top: 8px;
+                background: rgba(255, 159, 64, 0.1);
+                border: 1px solid rgba(255, 159, 64, 0.3);
+                border-radius: 10px;
+                color: #ff9f40;
+                font-size: 12px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+
+            .scan-folder-btn:hover {
+                background: rgba(255, 159, 64, 0.2);
+                border-color: rgba(255, 159, 64, 0.5);
+                transform: translateY(-1px);
+            }
+
+            .scan-folder-btn:active {
+                transform: translateY(0);
+            }
+
+            /* Frame file select dropdown */
+            .base-pose-frame-select {
+                width: 100%;
+                padding: 8px 12px;
+                margin-top: 6px;
+                margin-bottom: 8px;
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 10px;
+                color: var(--text-primary);
+                font-size: 12px;
+                cursor: pointer;
+                appearance: none;
+                background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23ffffff' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+                background-repeat: no-repeat;
+                background-position: right 10px center;
+                background-size: 10px 6px;
+                padding-right: 30px;
+                transition: all 0.2s;
+            }
+
+            .base-pose-frame-select:hover {
+                background-color: rgba(255, 255, 255, 0.12);
+                border-color: rgba(255, 255, 255, 0.2);
+            }
+
+            .base-pose-frame-select:focus {
+                outline: none;
+                background-color: rgba(255, 255, 255, 0.15);
+                border-color: rgba(10, 132, 255, 0.5);
+            }
+
+            .base-pose-frame-select option {
+                background: var(--bg-primary);
+                color: var(--text-primary);
+                padding: 8px;
+            }
+
+            [data-theme="light"] .base-pose-frame-select {
+                background-color: rgba(0, 0, 0, 0.05);
+                border-color: rgba(0, 0, 0, 0.1);
+                background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23000000' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+            }
+
+            [data-theme="light"] .base-pose-frame-select:hover {
+                background-color: rgba(0, 0, 0, 0.08);
+                border-color: rgba(0, 0, 0, 0.15);
+            }
+
+            [data-theme="light"] .base-pose-frame-select:focus {
+                background-color: rgba(0, 0, 0, 0.1);
+                border-color: var(--accent);
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    /**
+     * Setup base pose controls
+     */
+    setupBasePoseControls(model) {
+        const container = document.getElementById('base-pose-controls');
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        if (!model || !model.threeObject) {
+            const emptyState = document.createElement('div');
+            emptyState.className = 'empty-state';
+            emptyState.textContent = window.i18n?.t('noModel') || 'No model loaded';
+            container.appendChild(emptyState);
+            return;
+        }
+
+        // Store current model reference
+        this.currentModel = model;
+
+        // Save original base transform
+        this.originalBaseTransform = {
+            position: model.threeObject.position.clone(),
+            quaternion: model.threeObject.quaternion.clone()
+        };
+
+        // Reset base pose
+        this.basePose = {
+            roll: 0,
+            pitch: 0,
+            yaw: 0,
+            x: model.threeObject.position.x,
+            y: model.threeObject.position.y,
+            z: model.threeObject.position.z
+        };
+
+        // Store frames data (cached)
+        this.framesData = [];
+        this.currentFrameIndex = -1;
+        this.isFramesLoaded = false;
+        this.sliderUpdateTimer = null;
+        this.isDragging = false;
+
+        // Create controls for orientation (roll, pitch, yaw)
+        const orientationGroup = document.createElement('div');
+        orientationGroup.className = 'base-pose-group';
+        
+        const orientationTitle = document.createElement('div');
+        orientationTitle.className = 'base-pose-group-title';
+        orientationTitle.textContent = window.i18n?.t('orientation') || 'Orientation';
+        orientationGroup.appendChild(orientationTitle);
+
+        ['roll', 'pitch', 'yaw'].forEach(axis => {
+            const control = this.createBasePoseControl(axis, true, model);
+            orientationGroup.appendChild(control);
+        });
+
+        container.appendChild(orientationGroup);
+
+        // Create controls for position (x, y, z)
+        const positionGroup = document.createElement('div');
+        positionGroup.className = 'base-pose-group';
+        
+        const positionTitle = document.createElement('div');
+        positionTitle.className = 'base-pose-group-title';
+        positionTitle.textContent = window.i18n?.t('position') || 'Position (World)';
+        positionGroup.appendChild(positionTitle);
+
+        ['x', 'y', 'z'].forEach(axis => {
+            const control = this.createBasePoseControl(axis, false, model);
+            positionGroup.appendChild(control);
+        });
+
+        container.appendChild(positionGroup);
+
+        // Add frame time input
+        const frameTimeGroup = document.createElement('div');
+        frameTimeGroup.className = 'base-pose-frame-group';
+        
+        const frameTimeLabel = document.createElement('label');
+        frameTimeLabel.className = 'base-pose-frame-label';
+        frameTimeLabel.textContent = window.i18n?.t('frameTime') || 'Frame Time (s)';
+        
+        const frameTimeInput = document.createElement('input');
+        frameTimeInput.type = 'number';
+        frameTimeInput.className = 'base-pose-frame-input';
+        frameTimeInput.value = this.frameTime.toFixed(3);
+        frameTimeInput.step = '0.001';
+        frameTimeInput.min = '0';
+        frameTimeInput.placeholder = '0.000';
+        frameTimeInput.id = 'frame-time-input';
+        
+        frameTimeInput.addEventListener('change', () => {
+            const value = parseFloat(frameTimeInput.value);
+            if (!isNaN(value) && value >= 0) {
+                this.frameTime = value;
+                // Update slider position if frames are loaded
+                this.updateFrameSlider();
+            } else {
+                frameTimeInput.value = this.frameTime.toFixed(3);
+            }
+        });
+        
+        frameTimeGroup.appendChild(frameTimeLabel);
+        frameTimeGroup.appendChild(frameTimeInput);
+        container.appendChild(frameTimeGroup);
+
+        // Add frame slider for browsing frames
+        const frameSliderGroup = document.createElement('div');
+        frameSliderGroup.className = 'base-pose-frame-group';
+        
+        const frameSliderLabel = document.createElement('label');
+        frameSliderLabel.className = 'base-pose-frame-label';
+        frameSliderLabel.textContent = window.i18n?.t('frameSlider') || 'Browse Frames';
+        
+        const frameSliderContainer = document.createElement('div');
+        frameSliderContainer.className = 'base-pose-frame-slider-container';
+        frameSliderContainer.style.cssText = 'display: flex; align-items: center; gap: 8px; width: 100%;';
+        
+        // Previous frame button
+        const prevFrameBtn = document.createElement('button');
+        prevFrameBtn.className = 'frame-nav-btn frame-prev-btn';
+        prevFrameBtn.id = 'prev-frame-btn';
+        prevFrameBtn.textContent = '◀';
+        prevFrameBtn.title = window.i18n?.t('prevFrame') || 'Previous Frame';
+        prevFrameBtn.disabled = true;
+        prevFrameBtn.addEventListener('click', () => {
+            this.goToPreviousFrame(model);
+        });
+        
+        const frameSlider = document.createElement('input');
+        frameSlider.type = 'range';
+        frameSlider.className = 'base-pose-frame-slider';
+        frameSlider.id = 'frame-slider';
+        frameSlider.min = '0';
+        frameSlider.max = '0';
+        frameSlider.value = '0';
+        frameSlider.step = '0.001';
+        frameSlider.style.cssText = 'flex: 1;';
+        
+        // Next frame button
+        const nextFrameBtn = document.createElement('button');
+        nextFrameBtn.className = 'frame-nav-btn frame-next-btn';
+        nextFrameBtn.id = 'next-frame-btn';
+        nextFrameBtn.textContent = '▶';
+        nextFrameBtn.title = window.i18n?.t('nextFrame') || 'Next Frame';
+        nextFrameBtn.disabled = true;
+        nextFrameBtn.addEventListener('click', () => {
+            this.goToNextFrame(model);
+        });
+        
+        const frameSliderValue = document.createElement('span');
+        frameSliderValue.className = 'base-pose-frame-slider-value';
+        frameSliderValue.id = 'frame-slider-value';
+        frameSliderValue.textContent = '-';
+        frameSliderValue.style.cssText = 'min-width: 60px; text-align: right; font-size: 12px;';
+        
+        // Real-time update during drag using requestAnimationFrame for smooth performance
+        frameSlider.addEventListener('mousedown', () => {
+            this.isDragging = true;
+        });
+        
+        frameSlider.addEventListener('input', () => {
+            const index = parseInt(frameSlider.value);
+            if (index >= 0 && index < this.framesData.length) {
+                // Update display immediately
+                const frameData = this.framesData[index];
+                const sliderValue = document.getElementById('frame-slider-value');
+                if (sliderValue && frameData && frameData.frame_time !== undefined) {
+                    sliderValue.textContent = frameData.frame_time.toFixed(3) + 's';
+                }
+                
+                // Use requestAnimationFrame for smooth real-time updates
+                if (this.sliderUpdateTimer) {
+                    cancelAnimationFrame(this.sliderUpdateTimer);
+                }
+                this.sliderUpdateTimer = requestAnimationFrame(() => {
+                    this.loadFrameByIndex(index, model, true); // true = fast mode during drag
+                });
+            }
+        });
+        
+        // Update frame on slider release (full update with UI)
+        frameSlider.addEventListener('mouseup', () => {
+            this.isDragging = false;
+            const index = parseInt(frameSlider.value);
+            if (index >= 0 && index < this.framesData.length) {
+                // Clear any pending animation frame
+                if (this.sliderUpdateTimer) {
+                    cancelAnimationFrame(this.sliderUpdateTimer);
+                    this.sliderUpdateTimer = null;
+                }
+                // Load frame with full UI update on release
+                this.loadFrameByIndex(index, model, false);
+            }
+        });
+        
+        // Also handle change event for touch devices
+        frameSlider.addEventListener('change', () => {
+            if (!this.isDragging) {
+                const index = parseInt(frameSlider.value);
+                if (index >= 0 && index < this.framesData.length) {
+                    // Clear any pending animation frame
+                    if (this.sliderUpdateTimer) {
+                        cancelAnimationFrame(this.sliderUpdateTimer);
+                        this.sliderUpdateTimer = null;
+                    }
+                    // Load frame with full UI update
+                    this.loadFrameByIndex(index, model, false);
+                }
+            }
+        });
+        
+        frameSliderContainer.appendChild(prevFrameBtn);
+        frameSliderContainer.appendChild(frameSlider);
+        frameSliderContainer.appendChild(nextFrameBtn);
+        frameSliderContainer.appendChild(frameSliderValue);
+        frameSliderGroup.appendChild(frameSliderLabel);
+        frameSliderGroup.appendChild(frameSliderContainer);
+        container.appendChild(frameSliderGroup);
+
+        // Add save frame button
+        const saveFrameBtn = document.createElement('button');
+        saveFrameBtn.id = 'save-frame-btn';
+        saveFrameBtn.className = 'save-frame-btn';
+        saveFrameBtn.textContent = window.i18n?.t('saveFrame') || 'Save Frame';
+        saveFrameBtn.addEventListener('click', async () => {
+            await this.saveFrame(model);
+        });
+        container.appendChild(saveFrameBtn);
+
+        // Add reset button
+        const resetBtn = document.createElement('button');
+        resetBtn.id = 'reset-base-pose-btn';
+        resetBtn.className = 'reset-base-pose-btn';
+        resetBtn.textContent = window.i18n?.t('resetBasePose') || 'Reset Base Pose';
+        resetBtn.addEventListener('click', () => {
+            this.resetBasePose(model);
+        });
+        container.appendChild(resetBtn);
+
+        // Add load frames button
+        const loadFramesBtn = document.createElement('button');
+        loadFramesBtn.id = 'load-frames-btn';
+        loadFramesBtn.className = 'load-frames-btn';
+        loadFramesBtn.textContent = window.i18n?.t('loadFrames') || 'Load Frames';
+        loadFramesBtn.addEventListener('click', async () => {
+            await this.loadFrameFile(model);
+        });
+        container.appendChild(loadFramesBtn);
+
+        // Add interpolate frames section
+        const interpolateSection = document.createElement('div');
+        interpolateSection.className = 'interpolate-section';
+        interpolateSection.style.marginTop = '16px';
+        interpolateSection.style.padding = '12px';
+        interpolateSection.style.background = 'rgba(255, 255, 255, 0.04)';
+        interpolateSection.style.border = '1px solid rgba(255, 255, 255, 0.08)';
+        interpolateSection.style.borderRadius = '10px';
+
+        const interpolateTitle = document.createElement('div');
+        interpolateTitle.style.fontSize = '12px';
+        interpolateTitle.style.fontWeight = '600';
+        interpolateTitle.style.color = 'var(--text-secondary)';
+        interpolateTitle.style.marginBottom = '12px';
+        interpolateTitle.textContent = window.i18n?.t('interpolateFrames') || 'Interpolate to LaFAN Format';
+
+        // Frequency input group
+        const freqGroup = document.createElement('div');
+        freqGroup.style.display = 'flex';
+        freqGroup.style.alignItems = 'center';
+        freqGroup.style.gap = '8px';
+        freqGroup.style.marginBottom = '12px';
+
+        const freqLabel = document.createElement('label');
+        freqLabel.style.fontSize = '11px';
+        freqLabel.style.color = 'var(--text-secondary)';
+        freqLabel.style.minWidth = '60px';
+        freqLabel.textContent = (window.i18n?.t('frequency') || 'Frequency') + ':';
+
+        const freqInput = document.createElement('input');
+        freqInput.type = 'number';
+        freqInput.id = 'interpolate-freq-input';
+        freqInput.value = '60';
+        freqInput.min = '1';
+        freqInput.max = '120';
+        freqInput.step = '1';
+        freqInput.style.flex = '1';
+        freqInput.style.padding = '6px 10px';
+        freqInput.style.background = 'rgba(255, 255, 255, 0.04)';
+        freqInput.style.border = '1px solid rgba(255, 255, 255, 0.15)';
+        freqInput.style.borderRadius = '6px';
+        freqInput.style.color = 'var(--text-primary)';
+        freqInput.style.fontSize = '12px';
+
+        const freqUnit = document.createElement('span');
+        freqUnit.style.fontSize = '11px';
+        freqUnit.style.color = 'var(--text-secondary)';
+        freqUnit.textContent = 'Hz';
+
+        freqGroup.appendChild(freqLabel);
+        freqGroup.appendChild(freqInput);
+        freqGroup.appendChild(freqUnit);
+
+        // Interpolate button
+        const interpolateBtn = document.createElement('button');
+        interpolateBtn.id = 'interpolate-frames-btn';
+        interpolateBtn.className = 'interpolate-frames-btn';
+        interpolateBtn.textContent = window.i18n?.t('interpolateAndSave') || 'Interpolate & Save';
+        interpolateBtn.addEventListener('click', async () => {
+            await this.interpolateFrames(model, parseFloat(freqInput.value) || 60);
+        });
+
+        interpolateSection.appendChild(interpolateTitle);
+        interpolateSection.appendChild(freqGroup);
+        interpolateSection.appendChild(interpolateBtn);
+        container.appendChild(interpolateSection);
+    }
+
+    /**
+     * Create base pose control element
+     */
+    createBasePoseControl(axis, isRotation, model) {
+        const div = document.createElement('div');
+        div.className = 'base-pose-control';
+
+        // Header with axis name
+        const header = document.createElement('div');
+        header.className = 'base-pose-header';
+
+        const name = document.createElement('div');
+        name.className = 'base-pose-name';
+        name.textContent = axis.toUpperCase();
+
+        header.appendChild(name);
+
+        // Slider row
+        const sliderRow = document.createElement('div');
+        sliderRow.className = 'base-pose-slider-row';
+
+        // Set limits based on whether it's rotation or position
+        let min, max, step, initialValue;
+        
+        if (isRotation) {
+            min = -Math.PI;
+            max = Math.PI;
+            step = 0.001;  // 更细的粒度
+            initialValue = 0;
+        } else {
+            min = -0.3;   // 修改为 ±0.3
+            max = 0.3;
+            step = 0.0001; // 更细的粒度
+            initialValue = this.basePose[axis];
+        }
+
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.className = 'base-pose-slider';
+        slider.setAttribute('data-axis', axis);
+        slider.min = min;
+        slider.max = max;
+        slider.value = initialValue;
+        slider.step = step;
+
+        // Editable min/max labels
+        const minLabel = document.createElement('input');
+        minLabel.type = 'number';
+        minLabel.className = 'base-pose-limit-min editable-limit';
+        minLabel.step = '0.01';
+
+        const maxLabel = document.createElement('input');
+        maxLabel.type = 'number';
+        maxLabel.className = 'base-pose-limit-max editable-limit';
+        maxLabel.step = '0.01';
+
+        // Value input
+        const valueInput = document.createElement('input');
+        valueInput.type = 'number';
+        valueInput.className = 'base-pose-value-input';
+        valueInput.setAttribute('data-axis-input', axis);
+        valueInput.step = '0.01';
+
+        const valueUnit = document.createElement('span');
+        valueUnit.className = 'base-pose-value-unit';
+        valueUnit.textContent = isRotation ? (this.angleUnit === 'deg' ? '°' : 'rad') : 'm';
+
+        const updateLabels = () => {
+            const currentMin = parseFloat(slider.min);
+            const currentMax = parseFloat(slider.max);
+
+            if (isRotation && this.angleUnit === 'deg') {
+                minLabel.value = (currentMin * 180 / Math.PI).toFixed(1);
+                maxLabel.value = (currentMax * 180 / Math.PI).toFixed(1);
+            } else {
+                minLabel.value = currentMin.toFixed(2);
+                maxLabel.value = currentMax.toFixed(2);
+            }
+        };
+
+        const updateValueInput = () => {
+            const value = parseFloat(slider.value);
+            if (isRotation && this.angleUnit === 'deg') {
+                valueInput.value = (value * 180 / Math.PI).toFixed(1);
+            } else {
+                valueInput.value = value.toFixed(2);
+            }
+        };
+
+        updateLabels();
+        updateValueInput();
+
+        // Min label change event
+        minLabel.addEventListener('change', () => {
+            let inputValue = parseFloat(minLabel.value);
+            if (isNaN(inputValue)) {
+                updateLabels();
+                return;
+            }
+
+            let valueInUnit = isRotation && this.angleUnit === 'deg' ?
+                inputValue * Math.PI / 180 :
+                inputValue;
+
+            const currentMax = parseFloat(slider.max);
+            if (valueInUnit >= currentMax) {
+                updateLabels();
+                return;
+            }
+
+            slider.min = valueInUnit;
+            slider.step = (slider.max - slider.min) / 1000;
+            updateLabels();
+        });
+
+        // Max label change event
+        maxLabel.addEventListener('change', () => {
+            let inputValue = parseFloat(maxLabel.value);
+            if (isNaN(inputValue)) {
+                updateLabels();
+                return;
+            }
+
+            let valueInUnit = isRotation && this.angleUnit === 'deg' ?
+                inputValue * Math.PI / 180 :
+                inputValue;
+
+            const currentMin = parseFloat(slider.min);
+            if (valueInUnit <= currentMin) {
+                updateLabels();
+                return;
+            }
+
+            slider.max = valueInUnit;
+            slider.step = (slider.max - slider.min) / 1000;
+            updateLabels();
+        });
+
+        const sliderContainer = document.createElement('div');
+        sliderContainer.className = 'base-pose-slider-container';
+        sliderContainer.appendChild(slider);
+
+        const valueInputContainer = document.createElement('div');
+        valueInputContainer.className = 'base-pose-value-input-container';
+        valueInputContainer.appendChild(valueInput);
+        valueInputContainer.appendChild(valueUnit);
+
+        sliderRow.appendChild(minLabel);
+        sliderRow.appendChild(sliderContainer);
+        sliderRow.appendChild(maxLabel);
+        sliderRow.appendChild(valueInputContainer);
+
+        div.appendChild(header);
+        div.appendChild(sliderRow);
+
+        // Slider input event
+        slider.addEventListener('input', () => {
+            const value = parseFloat(slider.value);
+            this.basePose[axis] = value;
+            updateValueInput();
+            this.updateBasePose(model);
+        });
+
+        // Manual input event
+        valueInput.addEventListener('change', () => {
+            let inputValue = parseFloat(valueInput.value);
+            if (isNaN(inputValue)) {
+                updateValueInput();
+                return;
+            }
+
+            let valueInUnit = isRotation && this.angleUnit === 'deg' ?
+                inputValue * Math.PI / 180 :
+                inputValue;
+
+            const currentMin = parseFloat(slider.min);
+            const currentMax = parseFloat(slider.max);
+            valueInUnit = Math.max(currentMin, Math.min(currentMax, valueInUnit));
+
+            slider.value = valueInUnit;
+            this.basePose[axis] = valueInUnit;
+            updateValueInput();
+            this.updateBasePose(model);
+        });
+
+        // Save update function for angle unit changes
+        div._updateDisplay = () => {
+            updateValueInput();
+            updateLabels();
+            if (isRotation) {
+                valueUnit.textContent = this.angleUnit === 'deg' ? '°' : 'rad';
+            }
+        };
+
+        return div;
+    }
+
+    /**
+     * Update base pose of the model
+     */
+    updateBasePose(model) {
+        if (!model || !model.threeObject) return;
+
+        const { roll, pitch, yaw, x, y, z } = this.basePose;
+
+        // Update position
+        model.threeObject.position.set(x, y, z);
+
+        // Update rotation using Euler angles (ZYX order)
+        const euler = new THREE.Euler(roll, pitch, yaw, 'XYZ');
+        model.threeObject.quaternion.setFromEuler(euler);
+
+        // Redraw scene
+        this.sceneManager.redraw();
+        this.sceneManager.render();
+
+        // Trigger measurement update
+        if (this.sceneManager.onMeasurementUpdate) {
+            this.sceneManager.onMeasurementUpdate();
+        }
+    }
+
+    /**
+     * Reset base pose to original transform
+     */
+    resetBasePose(model) {
+        if (!model || !model.threeObject) return;
+
+        // Reset to original transform
+        if (this.originalBaseTransform) {
+            model.threeObject.position.copy(this.originalBaseTransform.position);
+            model.threeObject.quaternion.copy(this.originalBaseTransform.quaternion);
+        } else {
+            model.threeObject.position.set(0, 0, 0);
+            model.threeObject.quaternion.set(0, 0, 0, 1);
+        }
+
+        // Reset internal state
+        this.basePose = {
+            roll: 0,
+            pitch: 0,
+            yaw: 0,
+            x: model.threeObject.position.x,
+            y: model.threeObject.position.y,
+            z: model.threeObject.position.z
+        };
+
+        // Update all sliders
+        const sliders = document.querySelectorAll('.base-pose-slider');
+        sliders.forEach(slider => {
+            const axis = slider.getAttribute('data-axis');
+            slider.value = this.basePose[axis];
+            
+            const control = slider.closest('.base-pose-control');
+            if (control && control._updateDisplay) {
+                control._updateDisplay();
+            }
+        });
+
+        // Redraw scene
+        this.sceneManager.redraw();
+        this.sceneManager.render();
+
+        // Trigger measurement update
+        if (this.sceneManager.onMeasurementUpdate) {
+            this.sceneManager.onMeasurementUpdate();
+        }
+    }
+
+    /**
+     * Load frame from JSON file or JSON string
+     * @param {string} pathOrJson - File path or JSON string
+     * @param {object} model - Robot model
+     */
+    async loadFrame(pathOrJson, model) {
+        if (!model) {
+            this.showNotification(window.i18n?.t('noModelLoaded') || 'No model loaded', 'error');
+            return;
+        }
+
+        try {
+            let frameData;
+            
+            // Check if input is JSON string
+            if (pathOrJson.trim().startsWith('{')) {
+                // Parse as JSON
+                try {
+                    frameData = JSON.parse(pathOrJson);
+                } catch (e) {
+                    this.showNotification(window.i18n?.t('invalidJSON') || 'Invalid JSON format', 'error');
+                    return;
+                }
+            } else {
+                // Try to fetch from URL/path
+                try {
+                    const response = await fetch(pathOrJson);
+                    if (!response.ok) {
+                        throw new Error(`Failed to load: ${response.status}`);
+                    }
+                    frameData = await response.json();
+                } catch (e) {
+                    this.showNotification(
+                        window.i18n?.t('frameLoadFailed') || `Failed to load frame: ${e.message}`,
+                        'error'
+                    );
+                    return;
+                }
+            }
+
+            // Validate frame data structure
+            if (!frameData || typeof frameData !== 'object') {
+                this.showNotification(window.i18n?.t('invalidFrameData') || 'Invalid frame data', 'error');
+                return;
+            }
+
+            // Apply frame time
+            if (typeof frameData.frame_time === 'number') {
+                this.frameTime = frameData.frame_time;
+                const frameTimeInput = document.getElementById('frame-time-input');
+                if (frameTimeInput) {
+                    frameTimeInput.value = this.frameTime.toFixed(3);
+                }
+            }
+
+            // Apply joint angles
+            if (frameData.joint_angles && typeof frameData.joint_angles === 'object') {
+                Object.entries(frameData.joint_angles).forEach(([jointName, angle]) => {
+                    const joint = model.joints.get(jointName);
+                    if (joint && typeof angle === 'number') {
+                        // Use ModelLoaderFactory to set joint angle
+                        ModelLoaderFactory.setJointAngle(model, jointName, angle);
+                        joint.currentValue = angle;
+                        
+                        // Update joint slider if exists
+                        const slider = document.querySelector(`.joint-slider[data-joint="${jointName}"]`);
+                        if (slider) {
+                            slider.value = angle;
+                            const control = slider.closest('.joint-control');
+                            if (control && control._updateDisplay) {
+                                control._updateDisplay();
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Apply base pose RPY
+            if (frameData.rpy && typeof frameData.rpy === 'object') {
+                if (typeof frameData.rpy.roll === 'number') this.basePose.roll = frameData.rpy.roll;
+                if (typeof frameData.rpy.pitch === 'number') this.basePose.pitch = frameData.rpy.pitch;
+                if (typeof frameData.rpy.yaw === 'number') this.basePose.yaw = frameData.rpy.yaw;
+            }
+
+            // Apply base pose position
+            if (frameData.pos_world && typeof frameData.pos_world === 'object') {
+                if (typeof frameData.pos_world.x === 'number') this.basePose.x = frameData.pos_world.x;
+                if (typeof frameData.pos_world.y === 'number') this.basePose.y = frameData.pos_world.y;
+                if (typeof frameData.pos_world.z === 'number') this.basePose.z = frameData.pos_world.z;
+            }
+
+            // Update base pose transform
+            this.updateBasePose(model);
+
+            // Update all base pose sliders
+            const sliders = document.querySelectorAll('.base-pose-slider');
+            sliders.forEach(slider => {
+                const axis = slider.getAttribute('data-axis');
+                if (this.basePose[axis] !== undefined) {
+                    slider.value = this.basePose[axis];
+                    const control = slider.closest('.base-pose-control');
+                    if (control && control._updateDisplay) {
+                        control._updateDisplay();
+                    }
+                }
+            });
+
+            // Redraw scene
+            this.sceneManager.updateEnvironment();
+            this.sceneManager.redraw();
+            this.sceneManager.render();
+
+            // Trigger measurement update
+            if (this.sceneManager.onMeasurementUpdate) {
+                this.sceneManager.onMeasurementUpdate();
+            }
+
+            console.log('Frame loaded successfully:', frameData);
+            this.showNotification(window.i18n?.t('frameLoaded') || 'Frame loaded successfully', 'success');
+
+        } catch (error) {
+            console.error('Error loading frame:', error);
+            this.showNotification(
+                window.i18n?.t('frameLoadError') || `Error loading frame: ${error.message}`,
+                'error'
+            );
+        }
+    }
+
+    /**
+     * Get frame file path for current robot
+     */
+    getFrameFilePath(model) {
+        if (!model || !model.name) {
+            return './frames/frame_robot.json';
+        }
+        // Sanitize robot name for filename
+        const sanitizedName = model.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+        return `./frames/frame_${sanitizedName}.json`;
+    }
+
+    /**
+     * Save current frame to JSON file and reload frames
+     */
+    async saveFrame(model) {
+        if (!model) {
+            console.warn('No model loaded, cannot save frame');
+            this.showNotification(window.i18n?.t('noModelLoaded') || 'No model loaded', 'error');
+            return;
+        }
+
+        // Collect joint angles
+        const jointAngles = {};
+        if (model.joints) {
+            model.joints.forEach((joint, name) => {
+                if (joint.type !== 'fixed') {
+                    const currentValue = joint.currentValue !== undefined ? joint.currentValue : 0;
+                    jointAngles[name] = currentValue;
+                }
+            });
+        }
+
+        // Create frame data
+        const frameData = {
+            frame_time: this.frameTime,
+            joint_angles: jointAngles,
+            rpy: {
+                roll: this.basePose.roll,
+                pitch: this.basePose.pitch,
+                yaw: this.basePose.yaw
+            },
+            pos_world: {
+                x: this.basePose.x,
+                y: this.basePose.y,
+                z: this.basePose.z
+            }
+        };
+
+        // Convert to JSON
+        const jsonString = JSON.stringify(frameData, null, 2);
+
+        // Copy to clipboard using modern Clipboard API
+        try {
+            await navigator.clipboard.writeText(jsonString);
+            console.log('Frame copied to clipboard:', frameData);
+        } catch (err) {
+            console.error('Failed to copy to clipboard:', err);
+        }
+
+        // Save to file via backend API
+        const filePath = this.getFrameFilePath(model);
+        try {
+            const response = await fetch('http://localhost:3001/api/save-frame-file', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    file: filePath,
+                    frame: frameData,
+                    frameTime: this.frameTime
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to save: ${response.status}`);
+            }
+
+            const result = await response.json();
+            console.log('Frame saved to file:', result);
+
+            // Reload frames after saving
+            await this.loadFrameFile(model);
+
+            // Show success notification
+            const message = window.i18n?.t('frameSaved') || `Frame saved (${result.count} frames total)`;
+            this.showNotification(message, 'success');
+        } catch (error) {
+            console.error('Error saving frame file:', error);
+            this.showNotification(
+                window.i18n?.t('frameSaveError') || `Error saving frame: ${error.message}`,
+                'error'
+            );
+        }
+    }
+
+    /**
+     * Load frame file for current robot and cache all frames
+     */
+    async loadFrameFile(model) {
+        if (!model) return;
+
+        const loadBtn = document.getElementById('load-frames-btn');
+        if (loadBtn) {
+            loadBtn.disabled = true;
+            loadBtn.textContent = window.i18n?.t('loadingFrames') || 'Loading...';
+        }
+
+        const filePath = this.getFrameFilePath(model);
+        
+        try {
+            const response = await fetch(`http://localhost:3001/api/read-frame-file?file=${encodeURIComponent(filePath)}`);
+            
+            if (!response.ok) {
+                throw new Error(`Failed to load: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.error) {
+                console.warn('Error loading frame file:', data.error);
+                this.framesData = [];
+                this.isFramesLoaded = false;
+                this.updateFrameSlider();
+                if (loadBtn) {
+                    loadBtn.disabled = false;
+                    loadBtn.textContent = window.i18n?.t('loadFrames') || 'Load Frames';
+                }
+                this.showNotification(
+                    window.i18n?.t('frameLoadError') || `Error loading frames: ${data.error}`,
+                    'error'
+                );
+                return;
+            }
+            
+            // Cache all frames
+            this.framesData = data.frames || [];
+            this.isFramesLoaded = true;
+            
+            // Update slider
+            this.updateFrameSlider();
+            
+            // Show success notification
+            const message = window.i18n?.t('framesLoaded') || `${this.framesData.length} frames loaded`;
+            this.showNotification(message, 'success');
+            
+            // If frames exist, try to load the frame closest to current frameTime
+            if (this.framesData.length > 0) {
+                const closestIndex = this.findClosestFrameIndex(this.frameTime);
+                if (closestIndex >= 0) {
+                    this.loadFrameByIndex(closestIndex, model, false);
+                }
+            }
+            
+        } catch (error) {
+            console.error('Error loading frame file:', error);
+            this.framesData = [];
+            this.isFramesLoaded = false;
+            this.updateFrameSlider();
+            this.showNotification(
+                window.i18n?.t('frameLoadError') || `Error loading frames: ${error.message}`,
+                'error'
+            );
+        } finally {
+            if (loadBtn) {
+                loadBtn.disabled = false;
+                loadBtn.textContent = window.i18n?.t('loadFrames') || 'Load Frames';
+            }
+        }
+    }
+
+    /**
+     * Find closest frame index by frame_time
+     */
+    findClosestFrameIndex(targetTime) {
+        if (this.framesData.length === 0) return -1;
+        
+        let closestIndex = 0;
+        let minDiff = Math.abs((this.framesData[0].frame_time || 0) - targetTime);
+        
+        for (let i = 1; i < this.framesData.length; i++) {
+            const diff = Math.abs((this.framesData[i].frame_time || 0) - targetTime);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closestIndex = i;
+            }
+        }
+        
+        return closestIndex;
+    }
+
+    /**
+     * Update frame slider based on loaded frames
+     */
+    updateFrameSlider() {
+        const slider = document.getElementById('frame-slider');
+        const sliderValue = document.getElementById('frame-slider-value');
+        const prevBtn = document.getElementById('prev-frame-btn');
+        const nextBtn = document.getElementById('next-frame-btn');
+        
+        if (!slider || !sliderValue) return;
+        
+        if (!this.isFramesLoaded || this.framesData.length === 0) {
+            slider.min = '0';
+            slider.max = '0';
+            slider.value = '0';
+            slider.disabled = true;
+            sliderValue.textContent = '-';
+            if (prevBtn) prevBtn.disabled = true;
+            if (nextBtn) nextBtn.disabled = true;
+            return;
+        }
+        
+        slider.disabled = false;
+        slider.min = '0';
+        slider.max = String(this.framesData.length - 1);
+        
+        // Find current frame index
+        const currentIndex = this.findClosestFrameIndex(this.frameTime);
+        slider.value = String(currentIndex);
+        this.currentFrameIndex = currentIndex;
+        
+        // Update display
+        const currentFrame = this.framesData[currentIndex];
+        if (currentFrame) {
+            sliderValue.textContent = (currentFrame.frame_time || 0).toFixed(3) + 's';
+        }
+        
+        // Update navigation buttons state
+        if (prevBtn) {
+            prevBtn.disabled = currentIndex <= 0;
+        }
+        if (nextBtn) {
+            nextBtn.disabled = currentIndex >= this.framesData.length - 1;
+        }
+    }
+
+    /**
+     * Go to previous frame
+     */
+    goToPreviousFrame(model) {
+        if (!this.isFramesLoaded || this.framesData.length === 0) return;
+        
+        const currentIndex = this.currentFrameIndex >= 0 ? this.currentFrameIndex : this.findClosestFrameIndex(this.frameTime);
+        if (currentIndex > 0) {
+            this.loadFrameByIndex(currentIndex - 1, model, false);
+            // Update slider position
+            const slider = document.getElementById('frame-slider');
+            if (slider) {
+                slider.value = String(currentIndex - 1);
+            }
+        }
+    }
+
+    /**
+     * Go to next frame
+     */
+    goToNextFrame(model) {
+        if (!this.isFramesLoaded || this.framesData.length === 0) return;
+        
+        const currentIndex = this.currentFrameIndex >= 0 ? this.currentFrameIndex : this.findClosestFrameIndex(this.frameTime);
+        if (currentIndex < this.framesData.length - 1) {
+            this.loadFrameByIndex(currentIndex + 1, model, false);
+            // Update slider position
+            const slider = document.getElementById('frame-slider');
+            if (slider) {
+                slider.value = String(currentIndex + 1);
+            }
+        }
+    }
+
+    /**
+     * Load frame by index from cached data
+     * @param {number} index - Frame index
+     * @param {object} model - Robot model
+     * @param {boolean} fastMode - If true, skip UI updates for better performance during drag
+     */
+    loadFrameByIndex(index, model, fastMode = false) {
+        if (index < 0 || index >= this.framesData.length) return;
+        
+        const frameData = this.framesData[index];
+        this.currentFrameIndex = index;
+        
+        // Update frame time
+        if (typeof frameData.frame_time === 'number') {
+            this.frameTime = frameData.frame_time;
+            if (!fastMode) {
+                const frameTimeInput = document.getElementById('frame-time-input');
+                if (frameTimeInput) {
+                    frameTimeInput.value = this.frameTime.toFixed(3);
+                }
+            }
+        }
+        
+        // Apply joint angles (always needed for model update)
+        if (frameData.joint_angles && typeof frameData.joint_angles === 'object') {
+            Object.entries(frameData.joint_angles).forEach(([jointName, angle]) => {
+                const joint = model.joints.get(jointName);
+                if (joint && typeof angle === 'number') {
+                    ModelLoaderFactory.setJointAngle(model, jointName, angle);
+                    joint.currentValue = angle;
+                    
+                    // Update joint slider UI only if not in fast mode
+                    if (!fastMode) {
+                        const slider = document.querySelector(`.joint-slider[data-joint="${jointName}"]`);
+                        if (slider) {
+                            slider.value = angle;
+                            const control = slider.closest('.joint-control');
+                            if (control && control._updateDisplay) {
+                                control._updateDisplay();
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Apply base pose RPY
+        if (frameData.rpy && typeof frameData.rpy === 'object') {
+            if (typeof frameData.rpy.roll === 'number') this.basePose.roll = frameData.rpy.roll;
+            if (typeof frameData.rpy.pitch === 'number') this.basePose.pitch = frameData.rpy.pitch;
+            if (typeof frameData.rpy.yaw === 'number') this.basePose.yaw = frameData.rpy.yaw;
+        }
+        
+        // Apply base pose position
+        if (frameData.pos_world && typeof frameData.pos_world === 'object') {
+            if (typeof frameData.pos_world.x === 'number') this.basePose.x = frameData.pos_world.x;
+            if (typeof frameData.pos_world.y === 'number') this.basePose.y = frameData.pos_world.y;
+            if (typeof frameData.pos_world.z === 'number') this.basePose.z = frameData.pos_world.z;
+        }
+        
+        // Update base pose transform (always needed)
+        this.updateBasePose(model);
+        
+        // Update base pose sliders UI only if not in fast mode
+        if (!fastMode) {
+            const sliders = document.querySelectorAll('.base-pose-slider');
+            sliders.forEach(slider => {
+                const axis = slider.getAttribute('data-axis');
+                if (this.basePose[axis] !== undefined) {
+                    slider.value = this.basePose[axis];
+                    const control = slider.closest('.base-pose-control');
+                    if (control && control._updateDisplay) {
+                        control._updateDisplay();
+                    }
+                }
+            });
+        }
+        
+        // Update slider display (always update for visual feedback)
+        const slider = document.getElementById('frame-slider');
+        const sliderValue = document.getElementById('frame-slider-value');
+        if (slider && !fastMode) {
+            slider.value = String(index);
+        }
+        if (sliderValue && frameData.frame_time !== undefined) {
+            sliderValue.textContent = frameData.frame_time.toFixed(3) + 's';
+        }
+        
+        // Update navigation buttons state
+        if (!fastMode) {
+            const prevBtn = document.getElementById('prev-frame-btn');
+            const nextBtn = document.getElementById('next-frame-btn');
+            if (prevBtn) {
+                prevBtn.disabled = index <= 0;
+            }
+            if (nextBtn) {
+                nextBtn.disabled = index >= this.framesData.length - 1;
+            }
+        }
+        
+        // Redraw scene (always needed)
+        this.sceneManager.updateEnvironment();
+        this.sceneManager.redraw();
+        this.sceneManager.render();
+        
+        // Trigger measurement update only if not in fast mode
+        if (!fastMode && this.sceneManager.onMeasurementUpdate) {
+            this.sceneManager.onMeasurementUpdate();
+        }
+    }
+
+    /**
+     * Show notification message
+     * @param {string} message - Message to display
+     * @param {string} type - 'success' or 'error'
+     */
+    showNotification(message, type = 'success') {
+        const notification = document.createElement('div');
+        notification.className = 'frame-save-notification';
+        notification.textContent = message;
+        
+        const bgColor = type === 'error' 
+            ? 'rgba(255, 69, 58, 0.9)'  // Red for errors
+            : 'rgba(76, 217, 100, 0.9)'; // Green for success
+        
+        notification.style.cssText = `
+            position: fixed;
+            top: 100px;
+            right: 20px;
+            padding: 12px 20px;
+            background: ${bgColor};
+            color: white;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            z-index: 10000;
+            animation: slideInRight 0.3s ease;
+            max-width: 400px;
+            word-wrap: break-word;
+        `;
+        
+        document.body.appendChild(notification);
+        
+        const duration = type === 'error' ? 3000 : 2000; // Errors show longer
+        
+        setTimeout(() => {
+            notification.style.transition = 'opacity 0.3s ease';
+            notification.style.opacity = '0';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+        }, duration);
+    }
+
+    /**
+     * Scan for JSON files in a folder via backend API
+     * @param {string} folderPath - Path to the folder to scan
+     * @param {HTMLElement} selectElement - Select dropdown to populate
+     */
+    async scanFrameFiles(folderPath, selectElement) {
+        try {
+            // Call backend API
+            const response = await fetch(`http://localhost:3001/api/list-json-files?folder=${encodeURIComponent(folderPath)}`);
+            
+            if (!response.ok) {
+                throw new Error(`API error: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.error) {
+                this.showNotification(`${window.i18n?.t('scanFailed') || 'Scan failed'}: ${data.error}`, 'error');
+                return;
+            }
+            
+            // Populate the select dropdown
+            this.populateFileSelect(selectElement, data.files);
+            
+            const message = `${window.i18n?.t('filesFound') || 'Files found'}: ${data.count}`;
+            this.showNotification(message, 'success');
+            
+        } catch (error) {
+            console.error('Error scanning folder:', error);
+            this.showNotification(
+                `${window.i18n?.t('scanError') || 'Error scanning folder'}: ${error.message}`,
+                'error'
+            );
+        }
+    }
+
+    /**
+     * Populate file select dropdown with scanned files
+     * @param {HTMLElement} selectElement - Select dropdown to populate
+     * @param {Array} files - Array of file names
+     */
+    populateFileSelect(selectElement, files) {
+        if (!selectElement) return;
+        
+        // Keep only the default option
+        while (selectElement.options.length > 1) {
+            selectElement.remove(1);
+        }
+        
+        // Add file options
+        files.forEach(fileName => {
+            const option = document.createElement('option');
+            option.value = fileName;
+            option.textContent = fileName;
+            selectElement.appendChild(option);
+        });
+        
+        // Reset selection
+        selectElement.value = '';
+    }
+
+    /**
+     * Set angle unit (rad or deg)
+     */
+    setAngleUnit(unit) {
+        this.angleUnit = unit;
+        const controls = document.querySelectorAll('.base-pose-control');
+        controls.forEach(control => {
+            if (control._updateDisplay) {
+                control._updateDisplay();
+            }
+        });
+    }
+
+    /**
+     * Clear controls when no model is loaded
+     */
+    clearControls() {
+        const container = document.getElementById('base-pose-controls');
+        if (!container) return;
+
+        container.innerHTML = '';
+        const emptyState = document.createElement('div');
+        emptyState.className = 'empty-state';
+        emptyState.textContent = window.i18n?.t('noModel') || 'No model loaded';
+        container.appendChild(emptyState);
+    }
+
+    /**
+     * Interpolate frames from JSON file and save as CSV
+     * @param {Object} model - Current robot model
+     * @param {number} fps - Frames per second for interpolation (default: 60)
+     */
+    async interpolateFrames(model, fps = 60) {
+        if (!model) {
+            this.showNotification('No model loaded', 'error');
+            return;
+        }
+
+        const interpolateBtn = document.getElementById('interpolate-frames-btn');
+        if (interpolateBtn) {
+            interpolateBtn.disabled = true;
+            interpolateBtn.textContent = window.i18n?.t('processing') || 'Processing...';
+        }
+
+        try {
+            // Get frame file path
+            const filePath = this.getFrameFilePath(model);
+            
+            // Read file from backend API
+            const response = await fetch(`http://localhost:3001/api/read-frame-file?file=${encodeURIComponent(filePath)}`);
+            
+            if (!response.ok) {
+                const errorMsg = (window.i18n?.t('failedToLoadFile') || 'Failed to load file: {status}')
+                    .replace('{status}', response.status);
+                throw new Error(errorMsg);
+            }
+            
+            const result = await response.json();
+            
+            if (result.error) {
+                throw new Error(result.error);
+            }
+
+            // Get frames data (could be array or object with frames property)
+            let data;
+            if (Array.isArray(result)) {
+                data = { frames: result };
+            } else if (result.frames) {
+                data = result;
+            } else {
+                throw new Error(window.i18n?.t('invalidFileFormat') || 'Invalid file format: expected frames array');
+            }
+
+            // Check if frames array exists
+            if (!data.frames || !Array.isArray(data.frames) || data.frames.length === 0) {
+                throw new Error(window.i18n?.t('emptyFramesArray') || 'JSON file must contain a non-empty "frames" array');
+            }
+
+            const frames = data.frames;
+            
+            // Sort frames by frame_time
+            frames.sort((a, b) => (a.frame_time || 0) - (b.frame_time || 0));
+
+            // Extract joint names from first frame
+            const jointNames = [];
+            if (frames[0].joint_angles) {
+                const desiredOrder = [
+                    'FL_hip_joint', 'FL_thigh_joint', 'FL_calf_joint',
+                    'FR_hip_joint', 'FR_thigh_joint', 'FR_calf_joint',
+                    'RL_hip_joint', 'RL_thigh_joint', 'RL_calf_joint',
+                    'RR_hip_joint', 'RR_thigh_joint', 'RR_calf_joint'
+                ];
+                
+                const rawJoints = Object.keys(frames[0].joint_angles);
+                for (const joint of desiredOrder) {
+                    if (rawJoints.includes(joint)) {
+                        jointNames.push(joint);
+                    }
+                }
+                // Add any remaining joints
+                for (const joint of rawJoints) {
+                    if (!jointNames.includes(joint)) {
+                        jointNames.push(joint);
+                    }
+                }
+            }
+
+            // Extract times
+            const times = frames.map(f => f.frame_time || 0);
+
+            // Generate interpolated trajectory
+            const dt = 1.0 / fps;
+            const tStart = times[0];
+            const tEnd = times[times.length - 1];
+            const trajectory = [];
+
+            let t = tStart;
+            while (t <= tEnd) {
+                const frame = this.interpolateFrameAtTime(frames, times, t, jointNames);
+                trajectory.push(frame);
+                t += dt;
+            }
+
+            // Convert to CSV format
+            const csvLines = [];
+            for (const frame of trajectory) {
+                const row = [];
+                
+                // Position (3 columns)
+                if (frame.pos_world) {
+                    row.push(frame.pos_world.x.toFixed(6));
+                    row.push(frame.pos_world.y.toFixed(6));
+                    row.push(frame.pos_world.z.toFixed(6));
+                } else {
+                    row.push('0.000000', '0.000000', '0.000000');
+                }
+
+                // Rotation quaternion (4 columns)
+                if (frame.rot_quat) {
+                    row.push(frame.rot_quat.x.toFixed(6));
+                    row.push(frame.rot_quat.y.toFixed(6));
+                    row.push(frame.rot_quat.z.toFixed(6));
+                    row.push(frame.rot_quat.w.toFixed(6));
+                } else {
+                    row.push('0.000000', '0.000000', '0.000000', '1.000000');
+                }
+
+                // Joint angles
+                for (const jointName of jointNames) {
+                    const angle = frame.joint_angles?.[jointName] || 0;
+                    row.push(angle.toFixed(6));
+                }
+
+                csvLines.push(row.join(','));
+            }
+
+            // Save CSV file to frames/lafan/{robot_name}.csv via backend API
+            const csvContent = csvLines.join('\n');
+            
+            // Get robot name for output file
+            const sanitizedName = model.name ? model.name.replace(/[^a-zA-Z0-9_-]/g, '_') : 'robot';
+            const outputPath = `./frames/lafan/${sanitizedName}.csv`;
+            
+            // Save via backend API
+            const saveResponse = await fetch('http://localhost:3001/api/save-csv-file', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    file: outputPath,
+                    content: csvContent
+                })
+            });
+
+            if (!saveResponse.ok) {
+                const errorData = await saveResponse.json().catch(() => ({}));
+                throw new Error(errorData.error || `Failed to save file: ${saveResponse.status}`);
+            }
+
+            const saveResult = await saveResponse.json();
+            
+            if (saveResult.error) {
+                throw new Error(saveResult.error);
+            }
+
+            // Format success message with parameters
+            const successMsg = (window.i18n?.t('interpolateSuccess') || 'Successfully interpolated {count} frames at {fps}Hz and saved to {path}')
+                .replace('{count}', trajectory.length)
+                .replace('{fps}', fps)
+                .replace('{path}', outputPath);
+            
+            this.showNotification(successMsg, 'success');
+
+        } catch (error) {
+            console.error('Error interpolating frames:', error);
+            
+            // Format error message with parameters
+            const errorMsg = (window.i18n?.t('interpolateError') || 'Interpolation failed: {error}')
+                .replace('{error}', error.message);
+            
+            this.showNotification(errorMsg, 'error');
+        } finally {
+            if (interpolateBtn) {
+                interpolateBtn.disabled = false;
+                interpolateBtn.textContent = window.i18n?.t('interpolateAndSave') || 'Interpolate to LaFAN Format';
+            }
+        }
+    }
+
+    /**
+     * Interpolate frame at specific time
+     * @param {Array} frames - Array of frame objects
+     * @param {Array} times - Array of corresponding times
+     * @param {number} t - Target time
+     * @param {Array} jointNames - Array of joint names
+     * @returns {Object} Interpolated frame
+     */
+    interpolateFrameAtTime(frames, times, t, jointNames) {
+        // Handle edge cases
+        if (t <= times[0]) {
+            return this.convertFrameToOutput(frames[0], jointNames);
+        }
+        if (t >= times[times.length - 1]) {
+            return this.convertFrameToOutput(frames[frames.length - 1], jointNames);
+        }
+
+        // Find interpolation interval
+        let i = 0;
+        for (let j = 0; j < times.length - 1; j++) {
+            if (times[j] <= t && t <= times[j + 1]) {
+                i = j;
+                break;
+            }
+        }
+
+        const t1 = times[i];
+        const t2 = times[i + 1];
+        const frame1 = frames[i];
+        const frame2 = frames[i + 1];
+
+        const alpha = t2 === t1 ? 0 : (t - t1) / (t2 - t1);
+
+        // Interpolate position
+        const pos_world = {
+            x: 0, y: 0, z: 0
+        };
+        if (frame1.pos_world && frame2.pos_world) {
+            pos_world.x = frame1.pos_world.x * (1 - alpha) + frame2.pos_world.x * alpha;
+            pos_world.y = frame1.pos_world.y * (1 - alpha) + frame2.pos_world.y * alpha;
+            pos_world.z = frame1.pos_world.z * (1 - alpha) + frame2.pos_world.z * alpha;
+        }
+
+        // Interpolate rotation (RPY -> Quaternion)
+        let rot_quat = { x: 0, y: 0, z: 0, w: 1 };
+        if (frame1.rpy && frame2.rpy) {
+            const q1 = this.rpyToQuaternion(frame1.rpy.roll, frame1.rpy.pitch, frame1.rpy.yaw);
+            const q2 = this.rpyToQuaternion(frame2.rpy.roll, frame2.rpy.pitch, frame2.rpy.yaw);
+            rot_quat = this.quaternionSlerp(q1, q2, alpha);
+        }
+
+        // Interpolate joint angles
+        const joint_angles = {};
+        if (frame1.joint_angles && frame2.joint_angles) {
+            for (const jointName of jointNames) {
+                const angle1 = frame1.joint_angles[jointName] || 0;
+                const angle2 = frame2.joint_angles[jointName] || 0;
+                
+                // Handle angle wrapping
+                let angleDiff = angle2 - angle1;
+                if (angleDiff > Math.PI) {
+                    angleDiff -= 2 * Math.PI;
+                } else if (angleDiff < -Math.PI) {
+                    angleDiff += 2 * Math.PI;
+                }
+                
+                joint_angles[jointName] = angle1 + angleDiff * alpha;
+            }
+        }
+
+        return {
+            pos_world,
+            rot_quat,
+            joint_angles
+        };
+    }
+
+    /**
+     * Convert frame to output format
+     * @param {Object} frame - Frame object
+     * @param {Array} jointNames - Array of joint names
+     * @returns {Object} Converted frame
+     */
+    convertFrameToOutput(frame, jointNames) {
+        const pos_world = frame.pos_world || { x: 0, y: 0, z: 0 };
+        
+        let rot_quat = { x: 0, y: 0, z: 0, w: 1 };
+        if (frame.rpy) {
+            rot_quat = this.rpyToQuaternion(frame.rpy.roll, frame.rpy.pitch, frame.rpy.yaw);
+        }
+
+        const joint_angles = {};
+        if (frame.joint_angles) {
+            for (const jointName of jointNames) {
+                joint_angles[jointName] = frame.joint_angles[jointName] || 0;
+            }
+        }
+
+        return {
+            pos_world,
+            rot_quat,
+            joint_angles
+        };
+    }
+
+    /**
+     * Convert RPY to quaternion (x, y, z, w)
+     * @param {number} roll - Roll angle in radians (rotation around X axis)
+     * @param {number} pitch - Pitch angle in radians (rotation around Y axis)
+     * @param {number} yaw - Yaw angle in radians (rotation around Z axis)
+     * @returns {Object} Quaternion {x, y, z, w}
+     */
+    rpyToQuaternion(roll, pitch, yaw) {
+        // Using THREE.js Euler with XYZ order (same as scipy's 'xyz' order)
+        const euler = new THREE.Euler(roll, pitch, yaw, 'XYZ');
+        const quaternion = new THREE.Quaternion();
+        quaternion.setFromEuler(euler);
+        
+        return {
+            x: quaternion.x,
+            y: quaternion.y,
+            z: quaternion.z,
+            w: quaternion.w
+        };
+    }
+
+    /**
+     * Quaternion spherical linear interpolation (SLERP)
+     * @param {Object} q1 - First quaternion {x, y, z, w}
+     * @param {Object} q2 - Second quaternion {x, y, z, w}
+     * @param {number} t - Interpolation parameter (0 <= t <= 1)
+     * @returns {Object} Interpolated quaternion {x, y, z, w}
+     */
+    quaternionSlerp(q1, q2, t) {
+        // Normalize quaternions
+        const len1 = Math.sqrt(q1.x * q1.x + q1.y * q1.y + q1.z * q1.z + q1.w * q1.w);
+        const len2 = Math.sqrt(q2.x * q2.x + q2.y * q2.y + q2.z * q2.z + q2.w * q2.w);
+        
+        const nq1 = {
+            x: q1.x / len1,
+            y: q1.y / len1,
+            z: q1.z / len1,
+            w: q1.w / len1
+        };
+        
+        const nq2 = {
+            x: q2.x / len2,
+            y: q2.y / len2,
+            z: q2.z / len2,
+            w: q2.w / len2
+        };
+
+        // Calculate dot product
+        let dot = nq1.x * nq2.x + nq1.y * nq2.y + nq1.z * nq2.z + nq1.w * nq2.w;
+
+        // If dot product is negative, negate one quaternion to take shortest path
+        if (dot < 0) {
+            nq2.x = -nq2.x;
+            nq2.y = -nq2.y;
+            nq2.z = -nq2.z;
+            nq2.w = -nq2.w;
+            dot = -dot;
+        }
+
+        // Clamp dot product
+        dot = Math.max(-1, Math.min(1, dot));
+
+        // Calculate angle
+        const theta = Math.acos(dot);
+        const sinTheta = Math.sin(theta);
+
+        // If angle is very small, use linear interpolation
+        if (sinTheta < 1e-10) {
+            return {
+                x: nq1.x * (1 - t) + nq2.x * t,
+                y: nq1.y * (1 - t) + nq2.y * t,
+                z: nq1.z * (1 - t) + nq2.z * t,
+                w: nq1.w * (1 - t) + nq2.w * t
+            };
+        }
+
+        // SLERP formula
+        const w1 = Math.sin((1 - t) * theta) / sinTheta;
+        const w2 = Math.sin(t * theta) / sinTheta;
+
+        const result = {
+            x: w1 * nq1.x + w2 * nq2.x,
+            y: w1 * nq1.y + w2 * nq2.y,
+            z: w1 * nq1.z + w2 * nq2.z,
+            w: w1 * nq1.w + w2 * nq2.w
+        };
+
+        // Normalize result
+        const len = Math.sqrt(result.x * result.x + result.y * result.y + result.z * result.z + result.w * result.w);
+        return {
+            x: result.x / len,
+            y: result.y / len,
+            z: result.z / len,
+            w: result.w / len
+        };
+    }
+
+    /**
+     * Update base pose controls language
+     * Called when language changes to update all text elements
+     */
+    updateBasePoseControlsLanguage() {
+        const container = document.getElementById('base-pose-controls');
+        if (!container) return;
+
+        // Update orientation title (first group title)
+        const orientationTitles = container.querySelectorAll('.base-pose-group-title');
+        if (orientationTitles.length > 0) {
+            orientationTitles[0].textContent = window.i18n?.t('orientation') || 'Orientation (RPY)';
+        }
+
+        // Update position title (second group title)
+        if (orientationTitles.length > 1) {
+            orientationTitles[1].textContent = window.i18n?.t('position') || 'Position (World)';
+        }
+
+        // Update frame time label (first frame label)
+        const frameLabels = container.querySelectorAll('.base-pose-frame-label');
+        if (frameLabels.length > 0) {
+            frameLabels[0].textContent = window.i18n?.t('frameTime') || 'Frame Time (s)';
+        }
+
+        // Update frame slider label (second frame label)
+        if (frameLabels.length > 1) {
+            frameLabels[1].textContent = window.i18n?.t('frameSlider') || 'Browse Frames';
+        }
+
+        // Update prev/next frame button titles
+        const prevFrameBtn = document.getElementById('prev-frame-btn');
+        if (prevFrameBtn) {
+            prevFrameBtn.title = window.i18n?.t('prevFrame') || 'Previous Frame';
+        }
+
+        const nextFrameBtn = document.getElementById('next-frame-btn');
+        if (nextFrameBtn) {
+            nextFrameBtn.title = window.i18n?.t('nextFrame') || 'Next Frame';
+        }
+
+        // Update save frame button
+        const saveFrameBtn = document.getElementById('save-frame-btn');
+        if (saveFrameBtn) {
+            saveFrameBtn.textContent = window.i18n?.t('saveFrame') || 'Save Frame';
+        }
+
+        // Update reset button
+        const resetBtn = document.getElementById('reset-base-pose-btn');
+        if (resetBtn) {
+            resetBtn.textContent = window.i18n?.t('resetBasePose') || 'Reset Base Pose';
+        }
+
+        // Update load frames button
+        const loadFramesBtn = document.getElementById('load-frames-btn');
+        if (loadFramesBtn) {
+            const isLoading = loadFramesBtn.disabled && loadFramesBtn.textContent.includes('Loading');
+            if (isLoading) {
+                loadFramesBtn.textContent = window.i18n?.t('loadingFrames') || 'Loading...';
+            } else {
+                loadFramesBtn.textContent = window.i18n?.t('loadFrames') || 'Load Frames';
+            }
+        }
+
+        // Update interpolate section title
+        const interpolateSection = container.querySelector('.interpolate-section');
+        if (interpolateSection) {
+            const interpolateTitle = interpolateSection.querySelector('div:first-child');
+            if (interpolateTitle && interpolateTitle.style.fontSize === '12px') {
+                interpolateTitle.textContent = window.i18n?.t('interpolateFrames') || 'Interpolate to LaFAN Format';
+            }
+        }
+
+        // Update frequency label
+        const freqInput = document.getElementById('interpolate-freq-input');
+        if (freqInput) {
+            const freqGroup = freqInput.closest('div');
+            if (freqGroup) {
+                const freqLabel = freqGroup.querySelector('label');
+                if (freqLabel) {
+                    freqLabel.textContent = (window.i18n?.t('frequency') || 'Frequency') + ':';
+                }
+            }
+        }
+
+        // Update interpolate button (only if not processing)
+        const interpolateBtn = document.getElementById('interpolate-frames-btn');
+        if (interpolateBtn) {
+            const isProcessing = interpolateBtn.disabled && interpolateBtn.textContent.includes('Processing');
+            if (isProcessing) {
+                interpolateBtn.textContent = window.i18n?.t('processing') || 'Processing...';
+            } else {
+                interpolateBtn.textContent = window.i18n?.t('interpolateAndSave') || 'Interpolate to LaFAN Format';
+            }
+        }
+
+        // Update angle unit displays in controls
+        const controls = container.querySelectorAll('.base-pose-control');
+        controls.forEach(control => {
+            const updateDisplay = control._updateDisplay;
+            if (updateDisplay && typeof updateDisplay === 'function') {
+                updateDisplay();
+            }
+        });
+    }
+}

@@ -236,6 +236,27 @@
             flex-direction: column;
         }
 
+        /* Base pose control floating panel */
+        #floating-base-pose-panel {
+            top: 80px;
+            right: 20px;
+            width: calc(100vw * 0.1);
+            min-width: 400px;
+            height: 500px;
+            max-height: calc(100vh - 40px);
+            transition: all 0.4s var(--spring);
+        }
+
+        #floating-base-pose-panel.maximized {
+            top: 80px !important;
+            height: calc(100vh - 100px) !important;
+        }
+
+        #floating-base-pose-panel .floating-panel-content {
+            display: flex;
+            flex-direction: column;
+        }
+
         .floating-panel-content {
             flex: 1;
             overflow-y: auto;
@@ -2422,6 +2443,233 @@
             color: var(--text-primary);
         }
 
+        /* Base pose control styles */
+        .base-pose-group {
+            margin-bottom: 16px;
+        }
+
+        .base-pose-group-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            padding: 4px 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .base-pose-control {
+            margin-bottom: 8px;
+            padding: 8px 10px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .base-pose-control:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        [data-theme="light"] .base-pose-control {
+            background: rgba(0, 0, 0, 0.03);
+            border-color: rgba(0, 0, 0, 0.08);
+        }
+
+        [data-theme="light"] .base-pose-control:hover {
+            background: rgba(0, 0, 0, 0.05);
+            border-color: rgba(0, 0, 0, 0.12);
+        }
+
+        .base-pose-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .base-pose-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 13px;
+            letter-spacing: 0.3px;
+        }
+
+        .base-pose-slider-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+        }
+
+        .base-pose-limit-min,
+        .base-pose-limit-max {
+            font-size: 10px;
+            color: var(--text-tertiary);
+            width: 45px;
+            text-align: right;
+            flex-shrink: 0;
+            font-variant-numeric: tabular-nums;
+            font-weight: 500;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 4px;
+            padding: 2px 4px;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .base-pose-limit-min:hover,
+        .base-pose-limit-max:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.18);
+        }
+
+        .base-pose-limit-min:focus,
+        .base-pose-limit-max:focus {
+            outline: none;
+            border-color: var(--accent);
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        .base-pose-slider-container {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .base-pose-slider {
+            width: 100%;
+            height: 20px;
+            cursor: pointer;
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+            outline: none;
+        }
+
+        .base-pose-slider::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(
+                to right,
+                rgba(255, 255, 255, 0.08) 0%,
+                rgba(255, 255, 255, 0.12) 100%
+            );
+            border-radius: 2px;
+            border: 0.5px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .base-pose-slider:hover::-webkit-slider-runnable-track {
+            background: linear-gradient(
+                to right,
+                rgba(255, 255, 255, 0.12) 0%,
+                rgba(255, 255, 255, 0.16) 100%
+            );
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .base-pose-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: linear-gradient(
+                135deg,
+                rgba(255, 255, 255, 0.95) 0%,
+                rgba(255, 255, 255, 0.85) 100%
+            );
+            border: 2px solid rgba(76, 217, 100, 0.6);
+            box-shadow:
+                0 2px 8px rgba(0, 0, 0, 0.15),
+                0 0 0 0 rgba(76, 217, 100, 0.3),
+                inset 0 1px 2px rgba(255, 255, 255, 0.3);
+            cursor: grab;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            margin-top: -7px;
+        }
+
+        .base-pose-slider:active::-webkit-slider-thumb {
+            cursor: grabbing;
+            transform: scale(1.1);
+            box-shadow:
+                0 4px 16px rgba(0, 0, 0, 0.2),
+                0 0 0 4px rgba(76, 217, 100, 0.2),
+                inset 0 1px 2px rgba(255, 255, 255, 0.3);
+        }
+
+        .base-pose-value-input-container {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            flex-shrink: 0;
+            margin-left: 4px;
+        }
+
+        .base-pose-value-input {
+            width: 52px;
+            padding: 3px 5px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 11px;
+            font-variant-numeric: tabular-nums;
+            transition: all 0.2s;
+            text-align: right;
+            font-weight: 500;
+        }
+
+        .base-pose-value-input::-webkit-outer-spin-button,
+        .base-pose-value-input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        .base-pose-value-input[type=number] {
+            -moz-appearance: textfield;
+            appearance: textfield;
+        }
+
+        .base-pose-value-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .base-pose-value-input:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .base-pose-value-unit {
+            font-size: 10px;
+            color: var(--text-tertiary);
+            font-weight: 500;
+            min-width: 20px;
+        }
+
+        /* Frame time input group */
+
+        /* Frame save notification animation */
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
         #model-list {
             flex: 1;
             min-height: 0;
@@ -2909,6 +3157,9 @@
                     <button class="control-button active" id="toggle-shadow" data-checked="true">
                         <span data-i18n="shadow"></span>
                     </button>
+                    <button class="control-button" id="toggle-fixed-ground" data-checked="false">
+                        <span data-i18n="fixedGround"></span>
+                    </button>
                     <button class="control-button active" id="toggle-lighting" data-checked="true">
                         <span data-i18n="lighting"></span>
                     </button>
@@ -2930,11 +3181,14 @@
                 <div class="control-bar-divider"></div>
 
                 <div class="control-bar-section">
-                    <button class="tool-button active" id="toggle-files-panel">
+                    <button class="tool-button" id="toggle-files-panel">
                         <span class="tool-button-text" data-i18n="files"></span>
                     </button>
                     <button class="tool-button active" id="toggle-joints-panel">
                         <span class="tool-button-text" data-i18n="joints"></span>
+                    </button>
+                    <button class="tool-button" id="toggle-base-pose-panel">
+                        <span class="tool-button-text" data-i18n="basePose">Base Pose</span>
                     </button>
                     <button class="tool-button" id="toggle-model-tree">
                         <span class="tool-button-text" data-i18n="structure"></span>
@@ -3000,6 +3254,17 @@
                     </div>
                 </div>
                 <div class="floating-panel-content" id="joint-controls">
+                    <div class="empty-state" data-i18n="noModel"></div>
+                </div>
+            </div>
+
+            <div id="floating-base-pose-panel" class="floating-panel" style="display: none;">
+                <div class="floating-panel-header">
+                    <span data-i18n="basePoseControl">Base Pose Control</span>
+                    <button class="panel-maximize-btn" data-panel-id="floating-base-pose-panel">⛶</button>
+                    <button class="panel-close-btn" data-panel="floating-base-pose-panel">✕</button>
+                </div>
+                <div class="floating-panel-content" id="base-pose-controls">
                     <div class="empty-state" data-i18n="noModel"></div>
                 </div>
             </div>

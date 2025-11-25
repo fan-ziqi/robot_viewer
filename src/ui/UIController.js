@@ -279,12 +279,61 @@ export class UIController {
 
 
     /**
+     * Close a panel programmatically
+     * @param {string} panelId - Panel ID to close
+     * @param {string} buttonId - Toggle button ID (optional)
+     */
+    closePanel(panelId, buttonId = null) {
+        const panel = document.getElementById(panelId);
+        if (!panel) return;
+        
+        // Special handling for code-editor-panel which uses 'visible' class
+        if (panelId === 'code-editor-panel') {
+            const isVisible = panel.classList.contains('visible');
+            if (isVisible) {
+                panel.classList.remove('visible');
+                if (buttonId) {
+                    const button = document.getElementById(buttonId);
+                    if (button) {
+                        button.classList.remove('active');
+                    }
+                }
+            }
+            return;
+        }
+        
+        // Standard panels use display style
+        const isVisible = panel.style.display !== 'none' &&
+                         getComputedStyle(panel).display !== 'none';
+        
+        if (isVisible) {
+            panel.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+            panel.style.opacity = '0';
+            panel.style.transform = 'scale(0.95)';
+
+            setTimeout(() => {
+                panel.style.display = 'none';
+                panel.style.opacity = '';
+                panel.style.transform = '';
+            }, 200);
+
+            if (buttonId) {
+                const button = document.getElementById(buttonId);
+                if (button) {
+                    button.classList.remove('active');
+                }
+            }
+        }
+    }
+
+    /**
      * Setup panel close button functionality
      */
     setupPanelCloseButtons() {
         const panelButtonMap = {
             'floating-files-panel': 'toggle-files-panel',
             'floating-joints-panel': 'toggle-joints-panel',
+            'floating-base-pose-panel': 'toggle-base-pose-panel',
             'floating-model-tree': 'toggle-model-tree',
             'floating-help-panel': 'help-button'
         };
@@ -316,6 +365,18 @@ export class UIController {
                         if (toggleBtn) {
                             toggleBtn.classList.remove('active');
                         }
+                        
+                        // Unfix ground when base pose panel is closed
+                        if (panelId === 'floating-base-pose-panel' && this.sceneManager) {
+                            this.sceneManager.setFixedGround(false);
+                            
+                            // Update fixed ground button state
+                            const fixedGroundBtn = document.getElementById('toggle-fixed-ground');
+                            if (fixedGroundBtn) {
+                                fixedGroundBtn.classList.remove('active');
+                                fixedGroundBtn.setAttribute('data-checked', 'false');
+                            }
+                        }
                     }
                 }
             });
@@ -342,6 +403,18 @@ export class UIController {
                         }, 200);
 
                         button.classList.remove('active');
+                        
+                        // Unfix ground when base pose panel is closed
+                        if (panelId === 'floating-base-pose-panel' && this.sceneManager) {
+                            this.sceneManager.setFixedGround(false);
+                            
+                            // Update fixed ground button state
+                            const fixedGroundBtn = document.getElementById('toggle-fixed-ground');
+                            if (fixedGroundBtn) {
+                                fixedGroundBtn.classList.remove('active');
+                                fixedGroundBtn.setAttribute('data-checked', 'false');
+                            }
+                        }
                     } else {
                         panel.style.display = 'flex';
                         panel.style.opacity = '0';
@@ -358,6 +431,28 @@ export class UIController {
                         }, 200);
 
                         button.classList.add('active');
+                        
+                        // Auto-fix ground when base pose panel is opened
+                        if (panelId === 'floating-base-pose-panel' && this.sceneManager) {
+                            this.sceneManager.setFixedGround(true);
+                            
+                            // Update fixed ground button state
+                            const fixedGroundBtn = document.getElementById('toggle-fixed-ground');
+                            if (fixedGroundBtn) {
+                                fixedGroundBtn.classList.add('active');
+                                fixedGroundBtn.setAttribute('data-checked', 'true');
+                            }
+                            
+                            // Auto-load frames when base pose panel is opened
+                            if (window.app && window.app.basePoseControlsUI && window.app.currentModel) {
+                                window.app.basePoseControlsUI.loadFrameFile(window.app.currentModel);
+                            }
+                            
+                            // Close other panels when base pose panel is opened
+                            this.closePanel('floating-files-panel', 'toggle-files-panel');
+                            this.closePanel('floating-model-tree', 'toggle-model-tree');
+                            this.closePanel('code-editor-panel', 'open-editor-btn');
+                        }
                     }
                 });
             }
@@ -479,6 +574,30 @@ export class UIController {
     }
 
     /**
+     * Setup fixed ground toggle button
+     */
+    setupFixedGroundToggle() {
+        const fixedGroundBtn = document.getElementById('toggle-fixed-ground');
+        if (!fixedGroundBtn) {
+            return;
+        }
+
+        fixedGroundBtn.addEventListener('click', () => {
+            const isChecked = fixedGroundBtn.getAttribute('data-checked') === 'true';
+            const newState = !isChecked;
+
+            fixedGroundBtn.setAttribute('data-checked', newState.toString());
+            if (newState) {
+                fixedGroundBtn.classList.add('active');
+                this.sceneManager.setFixedGround(true);
+            } else {
+                fixedGroundBtn.classList.remove('active');
+                this.sceneManager.setFixedGround(false);
+            }
+        });
+    }
+
+    /**
      * Setup lighting toggle button
      */
     setupLightingToggle() {
@@ -500,9 +619,9 @@ export class UIController {
                 this.sceneManager.visualizationManager.toggleEnhancedLighting(false);
             }
             this.sceneManager.redraw();
-            this.sceneManager.render();
         });
     }
+
 
     /**
      * Setup all buttons and panels
@@ -522,6 +641,7 @@ export class UIController {
         this.setupAxesToggle();
         this.setupJointAxesToggle();
         this.setupShadowToggle();
+        this.setupFixedGroundToggle();
         this.setupLightingToggle();
     }
 

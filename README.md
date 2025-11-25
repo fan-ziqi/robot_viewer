@@ -41,11 +41,20 @@ cd robot_viewer
 pnpm install
 ```
 
-Start the development server:
+### Development
+
+Start both frontend and backend servers with one command:
 
 ```bash
-pnpm run dev
+pnpm run dev:all
 ```
+
+This will start:
+- Frontend at `http://localhost:3000`
+- Backend at `http://localhost:3001`
+
+> **Note**: The backend server is required for frame file operations (loading/saving frames, interpolating to LaFAN format).
+
 
 Build for production:
 

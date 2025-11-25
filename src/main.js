@@ -8,6 +8,7 @@ import { SceneManager } from './renderer/SceneManager.js';
 import { UIController } from './ui/UIController.js';
 import { FileHandler } from './controllers/FileHandler.js';
 import { JointControlsUI } from './ui/JointControlsUI.js';
+import { BasePoseControlsUI } from './ui/BasePoseControlsUI.js';
 import { PanelManager } from './ui/PanelManager.js';
 import { ModelGraphView } from './views/ModelGraphView.js';
 import { FileTreeView } from './views/FileTreeView.js';
@@ -30,6 +31,7 @@ class App {
         this.uiController = null;
         this.fileHandler = null;
         this.jointControlsUI = null;
+        this.basePoseControlsUI = null;
         this.panelManager = null;
         this.modelGraphView = null;
         this.fileTreeView = null;
@@ -85,6 +87,9 @@ class App {
 
             // Initialize joint controls UI
             this.jointControlsUI = new JointControlsUI(this.sceneManager);
+
+            // Initialize base pose controls UI
+            this.basePoseControlsUI = new BasePoseControlsUI(this.sceneManager);
 
             // Initialize model graph view
             this.modelGraphView = new ModelGraphView(this.sceneManager);
@@ -429,6 +434,7 @@ class App {
             // Normal model
             this.sceneManager.setGroundVisible(true);
             this.jointControlsUI.setupJointControls(model);
+            this.basePoseControlsUI.setupBasePoseControls(model);
 
             // Draw model graph
             if (this.modelGraphView) {
@@ -469,6 +475,12 @@ class App {
                 emptyState.textContent = window.i18n.t('noModel');
                 jointContainer.appendChild(emptyState);
             }
+            
+            // Clear base pose controls
+            if (this.basePoseControlsUI) {
+                this.basePoseControlsUI.clearControls();
+            }
+            
             const jointsPanel = document.getElementById('joints-panel');
             if (jointsPanel) jointsPanel.style.display = 'none';
 
@@ -788,6 +800,9 @@ class App {
         if (this.jointControlsUI) {
             this.jointControlsUI.setAngleUnit(unit);
         }
+        if (this.basePoseControlsUI) {
+            this.basePoseControlsUI.setAngleUnit(unit);
+        }
     }
 
     /**
@@ -822,6 +837,11 @@ class App {
         // Update joint controls panel (if model exists)
         if (this.currentModel && this.jointControlsUI) {
             this.jointControlsUI.setupJointControls(this.currentModel);
+        }
+
+        // Update base pose controls panel (if model exists)
+        if (this.currentModel && this.basePoseControlsUI) {
+            this.basePoseControlsUI.updateBasePoseControlsLanguage();
         }
 
         // Redraw model graph (if current model exists)
