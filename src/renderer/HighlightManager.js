@@ -325,24 +325,33 @@ export class HighlightManager {
             link.threeObject.getWorldPosition(linkPos);
             link.threeObject.getWorldQuaternion(linkQuat);
             linkEuler.setFromQuaternion(linkQuat, 'XYZ');
-
-            const rx = THREE.MathUtils.radToDeg(linkEuler.x);
-            const ry = THREE.MathUtils.radToDeg(linkEuler.y);
-            const rz = THREE.MathUtils.radToDeg(linkEuler.z);
             
-            const num_sig_figs = 4; 
+            const num_sig_figs = 4; // Decimals to display
+            const quatX = linkQuat.x.toFixed(num_sig_figs);
+            const quatY = linkQuat.y.toFixed(num_sig_figs);
+            const quatZ = linkQuat.z.toFixed(num_sig_figs);
+            const quatW = linkQuat.w.toFixed(num_sig_figs);
+
+            const rollRad = linkEuler.x.toFixed(num_sig_figs);
+            const pitchRad = linkEuler.y.toFixed(num_sig_figs);
+            const yawRad = linkEuler.z.toFixed(num_sig_figs);
+
+            const rollDeg = THREE.MathUtils.radToDeg(linkEuler.x).toFixed(num_sig_figs);
+            const pitchDeg = THREE.MathUtils.radToDeg(linkEuler.y).toFixed(num_sig_figs);
+            const yawDeg = THREE.MathUtils.radToDeg(linkEuler.z).toFixed(num_sig_figs);
+
             const positionBlock = 
                 `• Position (world):\n` +
                 `    \tx = ${linkPos.x.toFixed(num_sig_figs)} m\n` +
                 `    \ty = ${linkPos.y.toFixed(num_sig_figs)} m\n` +
                 `    \tz = ${linkPos.z.toFixed(num_sig_figs)} m\n`;
-            const orientationBlock = `• Orientation (Quat, world):\n` +
-                `    \tx = ${linkQuat.x.toFixed(num_sig_figs)}\n` +
-                `    \ty = ${linkQuat.y.toFixed(num_sig_figs)}\n` +
-                `    \tz = ${linkQuat.z.toFixed(num_sig_figs)}\n` +
-                `    \tw = ${linkQuat.w.toFixed(num_sig_figs)}`;
+            const orientationBlock = 
+            `• Orientation (world):\n` +
+            `   Quat: x=${quatX} y=${quatY} z=${quatZ} w=${quatW}\n` +
+            `   RPY (deg): r=${rollRad} p=${pitchRad} y=${yawRad}\n` +
+            `   RPY (rad): r=${rollDeg} p=${pitchDeg} y=${yawDeg}\n`;
 
-            linkPoseEl.textContent = positionBlock + orientationBlock
+            linkPoseEl.textContent = positionBlock + orientationBlock;
             linkPoseEl.style.display = 'block';
         } else if (linkPoseEl) {
             linkPoseEl.textContent = 'Link pose: N/A';
