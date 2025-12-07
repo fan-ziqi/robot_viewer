@@ -2,7 +2,6 @@
  * JointControlsUI - Joint control UI module
  * Responsible for creating and managing joint control sliders and input fields
  */
-import * as THREE from 'three';
 import { ModelLoaderFactory } from '../loaders/ModelLoaderFactory.js';
 import { XMLUpdater } from '../utils/XMLUpdater.js';
 
@@ -88,26 +87,6 @@ export class JointControlsUI {
     }
 
     /**
-     * Update link coordinates display
-     */
-    updateLinkCoordinates(model) {
-        if (!model || !model.links) return;
-
-        console.log('=== Link World Coordinates ===');
-        
-        model.links.forEach((link, linkName) => {
-            if (link.threeObject) {
-                const pos = new THREE.Vector3();
-                link.threeObject.getWorldPosition(pos);
-                
-                console.log(`${linkName}: x: ${pos.x.toFixed(3)}, y: ${pos.y.toFixed(3)}, z: ${pos.z.toFixed(3)}`);
-            }
-        });
-        
-        console.log('==============================');
-    }
-
-    /**
      * Setup joint controls
      */
     setupJointControls(model) {
@@ -138,9 +117,6 @@ export class JointControlsUI {
             container.appendChild(emptyState);
             return;
         }
-
-        // Initial update of coordinates (print to console)
-        this.updateLinkCoordinates(model);
 
         // Save initial joint values when model loads
         this.initialJointValues.clear();
@@ -511,9 +487,6 @@ export class JointControlsUI {
                     this.sceneManager.redraw();
                     this.sceneManager.render();
 
-                    // Update link coordinates display
-                    this.updateLinkCoordinates(model);
-
                     // Trigger measurement update
                     if (this.sceneManager.onMeasurementUpdate) {
                         this.sceneManager.onMeasurementUpdate();
@@ -552,9 +525,6 @@ export class JointControlsUI {
             updateValueInput();
             this.sceneManager.redraw();
             this.sceneManager.render();
-
-            // Update link coordinates display
-            this.updateLinkCoordinates(model);
 
             // Trigger measurement update
             if (this.sceneManager.onMeasurementUpdate) {
@@ -665,4 +635,3 @@ export class JointControlsUI {
         });
     }
 }
-
