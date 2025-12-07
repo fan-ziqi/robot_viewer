@@ -198,15 +198,16 @@ export class HighlightManager {
     }
 
     /**
-     * Show hover information (Link name, parent Joint name, mass)
+     * Show hover information (Link name, parent Joint name, mass, pose)
      */
     showHoverInfo(link, currentModel) {
         const hoverInfo = document.getElementById('hover-info');
         const jointNameEl = document.getElementById('hover-joint-name');
         const linkNameEl = document.getElementById('hover-link-name');
         const linkMassEl = document.getElementById('hover-link-mass');
+        const linkPoseEl = document.getElementById('hover-link-pose');
 
-        if (!hoverInfo || !jointNameEl || !linkNameEl || !linkMassEl) return;
+        if (!hoverInfo || !jointNameEl || !linkNameEl || !linkMassEl || !linkPoseEl) return;
 
         // Line 1: Display Link name
         linkNameEl.textContent = `Link: ${link.name || 'Unknown'}`;
@@ -313,6 +314,39 @@ export class HighlightManager {
             } else {
                 mergedLinksEl.style.display = 'none';
             }
+        }
+
+        // Line 5: Display link position and orientation
+        // const linkPoseEl = document.getElementById('hover-link-pose');
+
+        if (linkPoseEl && link.threeObject) {
+            const linkPos = new THREE.Vector3();
+            const linkQuat = new THREE.Quaternion();
+            const linkEuler = new THREE.Euler();
+
+            link.threeObject.getWorldPosition(linkPos);
+            link.threeObject.getWorldQuaternion(linkQuat);
+            linkEuler.setFromQuaternion(linkQuat, 'XYZ');
+
+            const rx = THREE.MathUtils.radToDeg(linkEuler.x);
+            const ry = THREE.MathUtils.radToDeg(linkEuler.y);
+            const rz = THREE.MathUtils.radToDeg(linkEuler.z);
+            
+            const num_sig_figs = 4; 
+            linkPoseEl.textContent =
+                `• Position (world):\n` +
+                `    \tx = ${linkPos.x.toFixed(num_sig_figs)} m\n` +
+                `    \ty = ${linkPos.y.toFixed(num_sig_figs)} m\n` +
+                `    \tz = ${linkPos.z.toFixed(num_sig_figs)} m\n` +
+                `• Orientation (Quat, world):\n` +
+                `    \tx = ${linkQuat.x.toFixed(num_sig_figs)}\n` +
+                `    \ty = ${linkQuat.y.toFixed(num_sig_figs)}\n` +
+                `    \tz = ${linkQuat.z.toFixed(num_sig_figs)}\n` +
+                `    \tw = ${linkQuat.w.toFixed(num_sig_figs)}`;
+            linkPoseEl.style.display = 'block';
+        } else if (linkPoseEl) {
+            linkPoseEl.textContent = 'Link pose: N/A';
+            linkPoseEl.style.display = 'block';
         }
 
         // Show tooltip
