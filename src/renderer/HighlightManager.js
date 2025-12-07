@@ -317,8 +317,6 @@ export class HighlightManager {
         }
 
         // Line 5: Display link position and orientation
-        // const linkPoseEl = document.getElementById('hover-link-pose');
-
         if (linkPoseEl && link.threeObject) {
             const linkPos = new THREE.Vector3();
             const linkQuat = new THREE.Quaternion();
@@ -333,16 +331,18 @@ export class HighlightManager {
             const rz = THREE.MathUtils.radToDeg(linkEuler.z);
             
             const num_sig_figs = 4; 
-            linkPoseEl.textContent =
+            const positionBlock = 
                 `• Position (world):\n` +
                 `    \tx = ${linkPos.x.toFixed(num_sig_figs)} m\n` +
                 `    \ty = ${linkPos.y.toFixed(num_sig_figs)} m\n` +
-                `    \tz = ${linkPos.z.toFixed(num_sig_figs)} m\n` +
-                `• Orientation (Quat, world):\n` +
+                `    \tz = ${linkPos.z.toFixed(num_sig_figs)} m\n`;
+            const orientationBlock = `• Orientation (Quat, world):\n` +
                 `    \tx = ${linkQuat.x.toFixed(num_sig_figs)}\n` +
                 `    \ty = ${linkQuat.y.toFixed(num_sig_figs)}\n` +
                 `    \tz = ${linkQuat.z.toFixed(num_sig_figs)}\n` +
                 `    \tw = ${linkQuat.w.toFixed(num_sig_figs)}`;
+
+            linkPoseEl.textContent = positionBlock + orientationBlock
             linkPoseEl.style.display = 'block';
         } else if (linkPoseEl) {
             linkPoseEl.textContent = 'Link pose: N/A';
