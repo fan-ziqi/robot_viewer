@@ -23,6 +23,9 @@ export class BasePoseControlsUI {
         // Frame time (seconds)
         this.frameTime = 0.0;
         
+        // Frame file name (user input)
+        this.frameFileName = '';
+        
         // Store current model reference
         this.currentModel = null;
         
@@ -505,6 +508,29 @@ export class BasePoseControlsUI {
         });
 
         container.appendChild(positionGroup);
+
+        // Add frame file name input
+        const frameFileNameGroup = document.createElement('div');
+        frameFileNameGroup.className = 'base-pose-frame-group';
+        
+        const frameFileNameLabel = document.createElement('label');
+        frameFileNameLabel.className = 'base-pose-frame-label';
+        frameFileNameLabel.textContent = window.i18n?.t('frameFileName') || 'Frame File Name';
+        
+        const frameFileNameInput = document.createElement('input');
+        frameFileNameInput.type = 'text';
+        frameFileNameInput.className = 'base-pose-frame-input';
+        frameFileNameInput.value = this.frameFileName;
+        frameFileNameInput.placeholder = 'e.g., frame_go1_description.json';
+        frameFileNameInput.id = 'frame-file-name-input';
+        
+        frameFileNameInput.addEventListener('change', () => {
+            this.frameFileName = frameFileNameInput.value.trim();
+        });
+        
+        frameFileNameGroup.appendChild(frameFileNameLabel);
+        frameFileNameGroup.appendChild(frameFileNameInput);
+        container.appendChild(frameFileNameGroup);
 
         // Add frame time input
         const frameTimeGroup = document.createElement('div');
@@ -1149,15 +1175,20 @@ export class BasePoseControlsUI {
     }
 
     /**
-     * Get frame file path for current robot
+     * Get frame file path from user input
      */
     getFrameFilePath(model) {
-        if (!model || !model.name) {
-            return './frames/frame_robot.json';
+        // Use user input file name
+        if (this.frameFileName && this.frameFileName.trim() !== '') {
+            const fileName = this.frameFileName.trim();
+            // Ensure it starts with ./frames/ if not already a full path
+            if (!fileName.startsWith('./') && !fileName.startsWith('/')) {
+                return `./frames/${fileName}`;
+            }
+            return fileName;
         }
-        // Sanitize robot name for filename
-        const sanitizedName = model.name.replace(/[^a-zA-Z0-9_-]/g, '_');
-        return `./frames/frame_${sanitizedName}.json`;
+        // Default fallback if no file name provided
+        return './frames/frame_robot.json';
     }
 
     /**
@@ -1167,6 +1198,16 @@ export class BasePoseControlsUI {
         if (!model) {
             console.warn('No model loaded, cannot save frame');
             this.showNotification(window.i18n?.t('noModelLoaded') || 'No model loaded', 'error');
+            return;
+        }
+
+        // Validate file name
+        if (!this.frameFileName || this.frameFileName.trim() === '') {
+            this.showNotification(window.i18n?.t('frameFileNameRequired') || 'Please enter a frame file name', 'error');
+            const frameFileNameInput = document.getElementById('frame-file-name-input');
+            if (frameFileNameInput) {
+                frameFileNameInput.focus();
+            }
             return;
         }
 
@@ -1250,6 +1291,16 @@ export class BasePoseControlsUI {
      */
     async loadFrameFile(model) {
         if (!model) return;
+
+        // Validate file name
+        if (!this.frameFileName || this.frameFileName.trim() === '') {
+            this.showNotification(window.i18n?.t('frameFileNameRequired') || 'Please enter a frame file name', 'error');
+            const frameFileNameInput = document.getElementById('frame-file-name-input');
+            if (frameFileNameInput) {
+                frameFileNameInput.focus();
+            }
+            return;
+        }
 
         const loadBtn = document.getElementById('load-frames-btn');
         if (loadBtn) {
@@ -1682,6 +1733,11 @@ export class BasePoseControlsUI {
         }
 
         try {
+            // Validate file name
+            if (!this.frameFileName || this.frameFileName.trim() === '') {
+                throw new Error(window.i18n?.t('frameFileNameRequired') || 'Please enter a frame file name');
+            }
+
             // Get frame file path
             const filePath = this.getFrameFilePath(model);
             
@@ -2068,15 +2124,20 @@ export class BasePoseControlsUI {
             orientationTitles[1].textContent = window.i18n?.t('position') || 'Position (World)';
         }
 
-        // Update frame time label (first frame label)
+        // Update frame file name label (first frame label)
         const frameLabels = container.querySelectorAll('.base-pose-frame-label');
         if (frameLabels.length > 0) {
-            frameLabels[0].textContent = window.i18n?.t('frameTime') || 'Frame Time (s)';
+            frameLabels[0].textContent = window.i18n?.t('frameFileName') || 'Frame File Name';
         }
 
-        // Update frame slider label (second frame label)
+        // Update frame time label (second frame label)
         if (frameLabels.length > 1) {
-            frameLabels[1].textContent = window.i18n?.t('frameSlider') || 'Browse Frames';
+            frameLabels[1].textContent = window.i18n?.t('frameTime') || 'Frame Time (s)';
+        }
+
+        // Update frame slider label (third frame label)
+        if (frameLabels.length > 2) {
+            frameLabels[2].textContent = window.i18n?.t('frameSlider') || 'Browse Frames';
         }
 
         // Update prev/next frame button titles
