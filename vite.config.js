@@ -1,9 +1,37 @@
 import { defineConfig } from 'vite';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Read package.json to get version number
 const packageJson = JSON.parse(readFileSync('./package.json', 'utf-8'));
 const version = packageJson.version;
+
+// Load .env file to get backend port
+function loadEnv() {
+    const envPath = path.join(__dirname, '.env');
+    if (existsSync(envPath)) {
+        const envContent = readFileSync(envPath, 'utf8');
+        const envVars = {};
+        envContent.split('\n').forEach(line => {
+            line = line.trim();
+            if (line && !line.startsWith('#')) {
+                const [key, ...valueParts] = line.split('=');
+                if (key && valueParts.length > 0) {
+                    envVars[key.trim()] = valueParts.join('=').trim();
+                }
+            }
+        });
+        return envVars;
+    }
+    return {};
+}
+
+const env = loadEnv();
+const backendPort = env.BACKEND_PORT || process.env.BACKEND_PORT || '3002';
 
 // Vite plugin: replace version placeholder in HTML
 function versionPlugin() {
@@ -20,7 +48,8 @@ export default defineConfig({
   base: './',
   // Define global constants
   define: {
-    '__APP_VERSION__': JSON.stringify(version)
+    '__APP_VERSION__': JSON.stringify(version),
+    '__BACKEND_PORT__': JSON.stringify(backendPort)
   },
   plugins: [
     versionPlugin(),

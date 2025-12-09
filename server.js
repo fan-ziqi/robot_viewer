@@ -12,8 +12,30 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Load environment variables from .env file
+function loadEnv() {
+    const envPath = path.join(__dirname, '.env');
+    if (fs.existsSync(envPath)) {
+        const envContent = fs.readFileSync(envPath, 'utf8');
+        const envVars = {};
+        envContent.split('\n').forEach(line => {
+            line = line.trim();
+            if (line && !line.startsWith('#')) {
+                const [key, ...valueParts] = line.split('=');
+                if (key && valueParts.length > 0) {
+                    envVars[key.trim()] = valueParts.join('=').trim();
+                }
+            }
+        });
+        return envVars;
+    }
+    return {};
+}
+
+const env = loadEnv();
+const PORT = parseInt(env.BACKEND_PORT || process.env.BACKEND_PORT || '3002', 10);
+
 const app = express();
-const PORT = 3001;
 
 // 启用 CORS
 app.use(cors());
@@ -293,6 +315,16 @@ app.post('/api/save-csv-file', (req, res) => {
             error: error.message
         });
     }
+});
+
+/**
+ * 配置端点 - 返回前端需要的配置信息
+ */
+app.get('/api/config', (req, res) => {
+    res.json({
+        backendPort: PORT,
+        backendUrl: `http://localhost:${PORT}`
+    });
 });
 
 /**

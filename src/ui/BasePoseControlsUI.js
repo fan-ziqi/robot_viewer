@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three';
 import { ModelLoaderFactory } from '../loaders/ModelLoaderFactory.js';
+import backendConfig from '../utils/BackendConfig.js';
 
 export class BasePoseControlsUI {
     constructor(sceneManager) {
@@ -1252,7 +1253,9 @@ export class BasePoseControlsUI {
         // Save to file via backend API
         const filePath = this.getFrameFilePath(model);
         try {
-            const response = await fetch('http://localhost:3001/api/save-frame-file', {
+            // Ensure backend config is initialized
+            await backendConfig.init();
+            const response = await fetch(backendConfig.getApiUrl('api/save-frame-file'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -1311,7 +1314,9 @@ export class BasePoseControlsUI {
         const filePath = this.getFrameFilePath(model);
         
         try {
-            const response = await fetch(`http://localhost:3001/api/read-frame-file?file=${encodeURIComponent(filePath)}`);
+            // Ensure backend config is initialized
+            await backendConfig.init();
+            const response = await fetch(`${backendConfig.getApiUrl('api/read-frame-file')}?file=${encodeURIComponent(filePath)}`);
             
             if (!response.ok) {
                 throw new Error(`Failed to load: ${response.status}`);
@@ -1635,7 +1640,9 @@ export class BasePoseControlsUI {
     async scanFrameFiles(folderPath, selectElement) {
         try {
             // Call backend API
-            const response = await fetch(`http://localhost:3001/api/list-json-files?folder=${encodeURIComponent(folderPath)}`);
+            // Ensure backend config is initialized
+            await backendConfig.init();
+            const response = await fetch(`${backendConfig.getApiUrl('api/list-json-files')}?folder=${encodeURIComponent(folderPath)}`);
             
             if (!response.ok) {
                 throw new Error(`API error: ${response.status}`);
@@ -1742,7 +1749,9 @@ export class BasePoseControlsUI {
             const filePath = this.getFrameFilePath(model);
             
             // Read file from backend API
-            const response = await fetch(`http://localhost:3001/api/read-frame-file?file=${encodeURIComponent(filePath)}`);
+            // Ensure backend config is initialized
+            await backendConfig.init();
+            const response = await fetch(`${backendConfig.getApiUrl('api/read-frame-file')}?file=${encodeURIComponent(filePath)}`);
             
             if (!response.ok) {
                 const errorMsg = (window.i18n?.t('failedToLoadFile') || 'Failed to load file: {status}')
@@ -1857,7 +1866,9 @@ export class BasePoseControlsUI {
             const outputPath = `./frames/lafan/${sanitizedName}.csv`;
             
             // Save via backend API
-            const saveResponse = await fetch('http://localhost:3001/api/save-csv-file', {
+            // Ensure backend config is initialized
+            await backendConfig.init();
+            const saveResponse = await fetch(backendConfig.getApiUrl('api/save-csv-file'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'

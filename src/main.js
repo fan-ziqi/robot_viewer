@@ -17,6 +17,7 @@ import { MeasurementController } from './controllers/MeasurementController.js';
 import { USDViewerManager } from './renderer/USDViewerManager.js';
 import { MujocoSimulationManager } from './renderer/MujocoSimulationManager.js';
 import { i18n } from './utils/i18n.js';
+import backendConfig from './utils/BackendConfig.js';
 
 // Expose d3 globally for PanelManager
 window.d3 = d3;
@@ -50,6 +51,9 @@ class App {
      */
     async init() {
         try {
+            // Initialize backend configuration (discover backend port)
+            await backendConfig.init();
+            
             // Initialize internationalization
             i18n.init();
 
