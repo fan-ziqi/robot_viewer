@@ -318,6 +318,106 @@ app.post('/api/save-csv-file', (req, res) => {
 });
 
 /**
+ * API 端点：应用偏移量到文件中的所有帧
+ * 使用: POST /api/apply-offset
+ * Body: { file: './frames/frame_robot.json', offset: { x: 0.1, y: 0.2, z: 0.3 } }
+ */
+app.post('/api/apply-offset', (req, res) => {
+    try {
+        const { file, offset } = req.body;
+        
+        if (!file || !offset) {
+            return res.status(400).json({ 
+                error: 'File path and offset are required'
+            });
+        }
+
+        if (typeof offset.x !== 'number' || typeof offset.y !== 'number' || typeof offset.z !== 'number') {
+            return res.status(400).json({ 
+                error: 'Offset must have numeric x, y, z values'
+            });
+        }
+        
+        // 解析相对路径 - 相对于项目根目录
+        const absolutePath = path.resolve(__dirname, file);
+        
+        // 安全检查 - 确保路径在允许的目录中
+        const realPath = fs.realpathSync(path.dirname(absolutePath));
+        const baseDir = fs.realpathSync(__dirname);
+        
+        if (!realPath.startsWith(baseDir)) {
+            return res.status(403).json({ 
+                error: 'Access denied'
+            });
+        }
+        
+        // 检查文件是否存在
+        if (!fs.existsSync(absolutePath) || !fs.statSync(absolutePath).isFile()) {
+            return res.status(404).json({ 
+                error: 'File not found'
+            });
+        }
+        
+        // 读取文件内容
+        const fileContent = fs.readFileSync(absolutePath, 'utf8');
+        const data = JSON.parse(fileContent);
+        
+        // 确保 frames 数组存在
+        if (!data.frames || !Array.isArray(data.frames)) {
+            return res.status(400).json({ 
+                error: 'Invalid file format: expected frames array'
+            });
+        }
+        
+        if (data.frames.length === 0) {
+            return res.status(400).json({ 
+                error: 'No frames found in file'
+            });
+        }
+        
+        // 应用偏移量到所有帧
+        const updatedFrames = data.frames.map(frame => {
+            const updatedFrame = JSON.parse(JSON.stringify(frame));
+            
+            // Ensure pos_world exists
+            if (!updatedFrame.pos_world) {
+                updatedFrame.pos_world = { x: 0, y: 0, z: 0 };
+            }
+            
+            // Apply offset to position
+            const originalX = updatedFrame.pos_world.x ?? 0;
+            const originalY = updatedFrame.pos_world.y ?? 0;
+            const originalZ = updatedFrame.pos_world.z ?? 0;
+            
+            updatedFrame.pos_world.x = originalX + offset.x;
+            updatedFrame.pos_world.y = originalY + offset.y;
+            updatedFrame.pos_world.z = originalZ + offset.z;
+            
+            return updatedFrame;
+        });
+        
+        // 按 frame_time 排序
+        updatedFrames.sort((a, b) => (a.frame_time || 0) - (b.frame_time || 0));
+        
+        // 保存文件
+        const dataToSave = { frames: updatedFrames };
+        fs.writeFileSync(absolutePath, JSON.stringify(dataToSave, null, 2), 'utf8');
+        
+        res.json({
+            success: true,
+            count: updatedFrames.length,
+            message: 'Offset applied successfully'
+        });
+        
+    } catch (error) {
+        console.error('Error applying offset:', error);
+        res.status(500).json({ 
+            error: error.message
+        });
+    }
+});
+
+/**
  * 配置端点 - 返回前端需要的配置信息
  */
 app.get('/api/config', (req, res) => {

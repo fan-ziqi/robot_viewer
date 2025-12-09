@@ -27,6 +27,13 @@ export class BasePoseControlsUI {
         // Frame file name (user input)
         this.frameFileName = '';
         
+        // World coordinate offset for all frames
+        this.worldOffset = {
+            x: 0,
+            y: 0,
+            z: 0
+        };
+        
         // Store current model reference
         this.currentModel = null;
         
@@ -533,6 +540,66 @@ export class BasePoseControlsUI {
         frameFileNameGroup.appendChild(frameFileNameInput);
         container.appendChild(frameFileNameGroup);
 
+        // Add world offset controls (simple input boxes)
+        const worldOffsetGroup = document.createElement('div');
+        worldOffsetGroup.className = 'base-pose-group';
+        
+        const worldOffsetTitle = document.createElement('div');
+        worldOffsetTitle.className = 'base-pose-group-title';
+        worldOffsetTitle.textContent = window.i18n?.t('worldOffset') || 'World Offset (All Frames)';
+        worldOffsetGroup.appendChild(worldOffsetTitle);
+
+        // Create input container for offset inputs
+        const offsetInputContainer = document.createElement('div');
+        offsetInputContainer.style.cssText = 'display: flex; gap: 8px; align-items: center;';
+        
+        ['x', 'y', 'z'].forEach(axis => {
+            const inputGroup = document.createElement('div');
+            inputGroup.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
+            
+            const label = document.createElement('label');
+            label.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500;';
+            label.textContent = axis.toUpperCase();
+            
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.className = 'base-pose-frame-input';
+            input.id = `offset-${axis}-input`;
+            input.value = (this.worldOffset[axis] || 0).toFixed(3);
+            input.step = '0.001';
+            input.style.cssText = 'text-align: center; width: 65px; min-width: 65px; max-width: 65px; padding: 6px 4px;';
+            input.placeholder = '0.000';
+            
+            input.addEventListener('change', () => {
+                const value = parseFloat(input.value);
+                if (!isNaN(value)) {
+                    this.worldOffset[axis] = value;
+                    input.value = value.toFixed(3);
+                } else {
+                    input.value = (this.worldOffset[axis] || 0).toFixed(3);
+                }
+            });
+            
+            inputGroup.appendChild(label);
+            inputGroup.appendChild(input);
+            offsetInputContainer.appendChild(inputGroup);
+        });
+
+        worldOffsetGroup.appendChild(offsetInputContainer);
+
+        // Add Apply Offset button
+        const applyOffsetBtn = document.createElement('button');
+        applyOffsetBtn.id = 'apply-offset-btn';
+        applyOffsetBtn.className = 'load-frame-btn';
+        applyOffsetBtn.textContent = window.i18n?.t('applyOffset') || 'Apply Offset';
+        applyOffsetBtn.style.cssText = 'margin-top: 12px;';
+        applyOffsetBtn.addEventListener('click', async () => {
+            await this.applyOffsetToFile(model);
+        });
+        worldOffsetGroup.appendChild(applyOffsetBtn);
+
+        container.appendChild(worldOffsetGroup);
+
         // Add frame time input
         const frameTimeGroup = document.createElement('div');
         frameTimeGroup.className = 'base-pose-frame-group';
@@ -790,7 +857,12 @@ export class BasePoseControlsUI {
 
         const name = document.createElement('div');
         name.className = 'base-pose-name';
-        name.textContent = axis.toUpperCase();
+        // Handle offset axis names
+        if (axis.startsWith('offset_')) {
+            name.textContent = axis.replace('offset_', '').toUpperCase() + ' Offset';
+        } else {
+            name.textContent = axis.toUpperCase();
+        }
 
         header.appendChild(name);
 
@@ -807,10 +879,19 @@ export class BasePoseControlsUI {
             step = 0.001;  // 更细的粒度
             initialValue = 0;
         } else {
-            min = -0.3;   // 修改为 ±0.3
-            max = 0.3;
-            step = 0.0001; // 更细的粒度
-            initialValue = this.basePose[axis];
+            // Check if this is an offset control
+            if (axis.startsWith('offset_')) {
+                const offsetAxis = axis.replace('offset_', '');
+                min = -10.0;   // Allow larger range for offset
+                max = 10.0;
+                step = 0.0001;
+                initialValue = this.worldOffset[offsetAxis] || 0;
+            } else {
+                min = -0.3;   // 修改为 ±0.3
+                max = 0.3;
+                step = 0.0001; // 更细的粒度
+                initialValue = this.basePose[axis];
+            }
         }
 
         const slider = document.createElement('input');
@@ -935,9 +1016,16 @@ export class BasePoseControlsUI {
         // Slider input event
         slider.addEventListener('input', () => {
             const value = parseFloat(slider.value);
-            this.basePose[axis] = value;
+            if (axis.startsWith('offset_')) {
+                const offsetAxis = axis.replace('offset_', '');
+                this.worldOffset[offsetAxis] = value;
+            } else {
+                this.basePose[axis] = value;
+            }
             updateValueInput();
-            this.updateBasePose(model);
+            if (!axis.startsWith('offset_')) {
+                this.updateBasePose(model);
+            }
         });
 
         // Manual input event
@@ -1286,6 +1374,81 @@ export class BasePoseControlsUI {
                 window.i18n?.t('frameSaveError') || `Error saving frame: ${error.message}`,
                 'error'
             );
+        }
+    }
+
+    /**
+     * Apply world offset to all frames in the file and save
+     */
+    async applyOffsetToFile(model) {
+        if (!model) {
+            this.showNotification(window.i18n?.t('noModelLoaded') || 'No model loaded', 'error');
+            return;
+        }
+
+        // Validate file name
+        if (!this.frameFileName || this.frameFileName.trim() === '') {
+            this.showNotification(window.i18n?.t('frameFileNameRequired') || 'Please enter a frame file name', 'error');
+            const frameFileNameInput = document.getElementById('frame-file-name-input');
+            if (frameFileNameInput) {
+                frameFileNameInput.focus();
+            }
+            return;
+        }
+
+        const applyBtn = document.getElementById('apply-offset-btn');
+        if (applyBtn) {
+            applyBtn.disabled = true;
+            applyBtn.textContent = window.i18n?.t('applying') || 'Applying...';
+        }
+
+        try {
+            const filePath = this.getFrameFilePath(model);
+            
+            // Send file path and offset to backend, backend will handle the rest
+            await backendConfig.init();
+            const response = await fetch(backendConfig.getApiUrl('api/apply-offset'), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    file: filePath,
+                    offset: {
+                        x: this.worldOffset.x,
+                        y: this.worldOffset.y,
+                        z: this.worldOffset.z
+                    }
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to apply offset: ${response.status}`);
+            }
+
+            const result = await response.json();
+            
+            if (result.error) {
+                throw new Error(result.error);
+            }
+
+            // Reload frames after saving
+            await this.loadFrameFile(model);
+
+            const message = window.i18n?.t('offsetApplied') || `Offset applied to ${result.count || 0} frames`;
+            this.showNotification(message, 'success');
+
+        } catch (error) {
+            console.error('Error applying offset:', error);
+            this.showNotification(
+                window.i18n?.t('applyOffsetError') || `Error applying offset: ${error.message}`,
+                'error'
+            );
+        } finally {
+            if (applyBtn) {
+                applyBtn.disabled = false;
+                applyBtn.textContent = window.i18n?.t('applyOffset') || 'Apply Offset';
+            }
         }
     }
 
@@ -1858,12 +2021,32 @@ export class BasePoseControlsUI {
                 csvLines.push(row.join(','));
             }
 
-            // Save CSV file to frames/lafan/{robot_name}.csv via backend API
+            // Save CSV file to frames/lafan/{frame_file_name}.csv via backend API
             const csvContent = csvLines.join('\n');
             
-            // Get robot name for output file
-            const sanitizedName = model.name ? model.name.replace(/[^a-zA-Z0-9_-]/g, '_') : 'robot';
-            const outputPath = `./frames/lafan/${sanitizedName}.csv`;
+            // Get output file name based on frame file name
+            let outputFileName = 'robot';
+            if (this.frameFileName && this.frameFileName.trim() !== '') {
+                // Remove path and extension, keep only the base name
+                let fileName = this.frameFileName.trim();
+                // Remove directory path if present
+                fileName = fileName.split('/').pop().split('\\').pop();
+                // Remove .json extension if present
+                if (fileName.toLowerCase().endsWith('.json')) {
+                    fileName = fileName.slice(0, -5);
+                }
+                // Remove 'frame_' prefix if present (optional)
+                if (fileName.toLowerCase().startsWith('frame_')) {
+                    fileName = fileName.slice(6);
+                }
+                // Sanitize the name
+                outputFileName = fileName.replace(/[^a-zA-Z0-9_-]/g, '_');
+            } else if (model.name) {
+                // Fallback to model name if frame file name not available
+                outputFileName = model.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+            }
+            
+            const outputPath = `./frames/lafan/${outputFileName}.csv`;
             
             // Save via backend API
             // Ensure backend config is initialized
