@@ -834,7 +834,7 @@ export class BasePoseControlsUI {
         const freqInput = document.createElement('input');
         freqInput.type = 'number';
         freqInput.id = 'interpolate-freq-input';
-        freqInput.value = '60';
+        freqInput.value = '30';
         freqInput.min = '1';
         freqInput.max = '120';
         freqInput.step = '1';
@@ -861,7 +861,7 @@ export class BasePoseControlsUI {
         interpolateBtn.className = 'interpolate-frames-btn';
         interpolateBtn.textContent = window.i18n?.t('interpolateAndSave') || 'Interpolate & Save';
         interpolateBtn.addEventListener('click', async () => {
-            await this.interpolateFrames(model, parseFloat(freqInput.value) || 60);
+            await this.interpolateFrames(model, parseFloat(freqInput.value) || 30);
         });
 
         interpolateSection.appendChild(interpolateTitle);
@@ -1992,9 +1992,9 @@ export class BasePoseControlsUI {
     /**
      * Interpolate frames from JSON file and save as CSV
      * @param {Object} model - Current robot model
-     * @param {number} fps - Frames per second for interpolation (default: 60)
+     * @param {number} fps - Frames per second for interpolation (default: 30)
      */
-    async interpolateFrames(model, fps = 60) {
+    async interpolateFrames(model, fps = 30) {
         if (!model) {
             this.showNotification('No model loaded', 'error');
             return;
