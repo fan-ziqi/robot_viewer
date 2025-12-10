@@ -1376,6 +1376,9 @@ export class BasePoseControlsUI {
         // Save to file via backend API
         const filePath = this.getFrameFilePath(model);
         try {
+            // Remember current frameTime before saving (to restore position after reload)
+            const savedFrameTime = this.frameTime;
+            
             // Ensure backend config is initialized
             await backendConfig.init();
             const response = await fetch(backendConfig.getApiUrl('api/save-frame-file'), {
@@ -1399,6 +1402,15 @@ export class BasePoseControlsUI {
 
             // Reload frames after saving
             await this.loadFrameFile(model);
+
+            // Restore to the saved frame position (by frameTime)
+            // This ensures we stay at the saved frame position, not reset to first frame
+            if (this.framesData.length > 0) {
+                const closestIndex = this.findClosestFrameIndex(savedFrameTime);
+                if (closestIndex >= 0) {
+                    this.loadFrameByIndex(closestIndex, model, false);
+                }
+            }
 
             // Show success notification
             const message = window.i18n?.t('frameSaved') || `Frame saved (${result.count} frames total)`;
