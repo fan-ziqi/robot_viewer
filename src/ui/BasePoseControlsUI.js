@@ -40,6 +40,16 @@ export class BasePoseControlsUI {
         // Store original base transform
         this.originalBaseTransform = null;
         
+        // Timer for dynamic range adjustment
+        this.rangeAdjustTimer = null;
+        
+        // Store initial slider ranges for xyz (only expand, never shrink)
+        this.xyzSliderRanges = {
+            x: { min: -0.3, max: 0.3 },
+            y: { min: -0.3, max: 0.3 },
+            z: { min: -0.3, max: 0.3 }
+        };
+        
         // Inject styles once
         this.injectStyles();
     }
@@ -449,6 +459,12 @@ export class BasePoseControlsUI {
         const container = document.getElementById('base-pose-controls');
         if (!container) return;
 
+        // Stop existing range adjustment timer
+        if (this.rangeAdjustTimer) {
+            clearInterval(this.rangeAdjustTimer);
+            this.rangeAdjustTimer = null;
+        }
+
         container.innerHTML = '';
 
         if (!model || !model.threeObject) {
@@ -476,6 +492,16 @@ export class BasePoseControlsUI {
             x: model.threeObject.position.x,
             y: model.threeObject.position.y,
             z: model.threeObject.position.z
+        };
+
+        // Reset xyz slider ranges based on initial values
+        const initialX = this.basePose.x;
+        const initialY = this.basePose.y;
+        const initialZ = this.basePose.z;
+        this.xyzSliderRanges = {
+            x: { min: initialX - 0.3, max: initialX + 0.3 },
+            y: { min: initialY - 0.3, max: initialY + 0.3 },
+            z: { min: initialZ - 0.3, max: initialZ + 0.3 }
         };
 
         // Store frames data (cached)
@@ -565,18 +591,18 @@ export class BasePoseControlsUI {
             input.type = 'number';
             input.className = 'base-pose-frame-input';
             input.id = `offset-${axis}-input`;
-            input.value = (this.worldOffset[axis] || 0).toFixed(3);
-            input.step = '0.001';
+            input.value = (this.worldOffset[axis] || 0).toFixed(4);
+            input.step = '0.0001';
             input.style.cssText = 'text-align: center; width: 65px; min-width: 65px; max-width: 65px; padding: 6px 4px;';
-            input.placeholder = '0.000';
+            input.placeholder = '0.0000';
             
             input.addEventListener('change', () => {
                 const value = parseFloat(input.value);
                 if (!isNaN(value)) {
                     this.worldOffset[axis] = value;
-                    input.value = value.toFixed(3);
+                    input.value = value.toFixed(4);
                 } else {
-                    input.value = (this.worldOffset[axis] || 0).toFixed(3);
+                    input.value = (this.worldOffset[axis] || 0).toFixed(4);
                 }
             });
             
@@ -611,10 +637,10 @@ export class BasePoseControlsUI {
         const frameTimeInput = document.createElement('input');
         frameTimeInput.type = 'number';
         frameTimeInput.className = 'base-pose-frame-input';
-        frameTimeInput.value = this.frameTime.toFixed(3);
-        frameTimeInput.step = '0.001';
+        frameTimeInput.value = this.frameTime.toFixed(4);
+        frameTimeInput.step = '0.0001';
         frameTimeInput.min = '0';
-        frameTimeInput.placeholder = '0.000';
+        frameTimeInput.placeholder = '0.0000';
         frameTimeInput.id = 'frame-time-input';
         
         frameTimeInput.addEventListener('change', () => {
@@ -624,7 +650,7 @@ export class BasePoseControlsUI {
                 // Update slider position if frames are loaded
                 this.updateFrameSlider();
             } else {
-                frameTimeInput.value = this.frameTime.toFixed(3);
+                frameTimeInput.value = this.frameTime.toFixed(4);
             }
         });
         
@@ -694,7 +720,7 @@ export class BasePoseControlsUI {
                 const frameData = this.framesData[index];
                 const sliderValue = document.getElementById('frame-slider-value');
                 if (sliderValue && frameData && frameData.frame_time !== undefined) {
-                    sliderValue.textContent = frameData.frame_time.toFixed(3) + 's';
+                    sliderValue.textContent = frameData.frame_time.toFixed(4) + 's';
                 }
                 
                 // Use requestAnimationFrame for smooth real-time updates
@@ -842,6 +868,9 @@ export class BasePoseControlsUI {
         interpolateSection.appendChild(freqGroup);
         interpolateSection.appendChild(interpolateBtn);
         container.appendChild(interpolateSection);
+
+        // Start dynamic range adjustment timer for xyz sliders
+        this.startRangeAdjustment();
     }
 
     /**
@@ -887,10 +916,16 @@ export class BasePoseControlsUI {
                 step = 0.0001;
                 initialValue = this.worldOffset[offsetAxis] || 0;
             } else {
-                min = -0.3;   // 修改为 ±0.3
-                max = 0.3;
-                step = 0.0001; // 更细的粒度
+                // For xyz axes, use current value ± 0.3
                 initialValue = this.basePose[axis];
+                min = initialValue - 0.3;
+                max = initialValue + 0.3;
+                step = 0.0001; // 更细的粒度
+                
+                // Store initial range
+                if (['x', 'y', 'z'].includes(axis)) {
+                    this.xyzSliderRanges[axis] = { min, max };
+                }
             }
         }
 
@@ -907,19 +942,19 @@ export class BasePoseControlsUI {
         const minLabel = document.createElement('input');
         minLabel.type = 'number';
         minLabel.className = 'base-pose-limit-min editable-limit';
-        minLabel.step = '0.01';
+        minLabel.step = '0.0001';
 
         const maxLabel = document.createElement('input');
         maxLabel.type = 'number';
         maxLabel.className = 'base-pose-limit-max editable-limit';
-        maxLabel.step = '0.01';
+        maxLabel.step = '0.0001';
 
         // Value input
         const valueInput = document.createElement('input');
         valueInput.type = 'number';
         valueInput.className = 'base-pose-value-input';
         valueInput.setAttribute('data-axis-input', axis);
-        valueInput.step = '0.01';
+        valueInput.step = '0.0001';
 
         const valueUnit = document.createElement('span');
         valueUnit.className = 'base-pose-value-unit';
@@ -930,20 +965,20 @@ export class BasePoseControlsUI {
             const currentMax = parseFloat(slider.max);
 
             if (isRotation && this.angleUnit === 'deg') {
-                minLabel.value = (currentMin * 180 / Math.PI).toFixed(1);
-                maxLabel.value = (currentMax * 180 / Math.PI).toFixed(1);
+                minLabel.value = (currentMin * 180 / Math.PI).toFixed(4);
+                maxLabel.value = (currentMax * 180 / Math.PI).toFixed(4);
             } else {
-                minLabel.value = currentMin.toFixed(2);
-                maxLabel.value = currentMax.toFixed(2);
+                minLabel.value = currentMin.toFixed(4);
+                maxLabel.value = currentMax.toFixed(4);
             }
         };
 
         const updateValueInput = () => {
             const value = parseFloat(slider.value);
             if (isRotation && this.angleUnit === 'deg') {
-                valueInput.value = (value * 180 / Math.PI).toFixed(1);
+                valueInput.value = (value * 180 / Math.PI).toFixed(4);
             } else {
-                valueInput.value = value.toFixed(2);
+                valueInput.value = value.toFixed(4);
             }
         };
 
@@ -1185,7 +1220,7 @@ export class BasePoseControlsUI {
                 this.frameTime = frameData.frame_time;
                 const frameTimeInput = document.getElementById('frame-time-input');
                 if (frameTimeInput) {
-                    frameTimeInput.value = this.frameTime.toFixed(3);
+                    frameTimeInput.value = this.frameTime.toFixed(4);
                 }
             }
 
@@ -1593,7 +1628,7 @@ export class BasePoseControlsUI {
         // Update display
         const currentFrame = this.framesData[currentIndex];
         if (currentFrame) {
-            sliderValue.textContent = (currentFrame.frame_time || 0).toFixed(3) + 's';
+            sliderValue.textContent = (currentFrame.frame_time || 0).toFixed(4) + 's';
         }
         
         // Update navigation buttons state
@@ -1657,7 +1692,7 @@ export class BasePoseControlsUI {
             if (!fastMode) {
                 const frameTimeInput = document.getElementById('frame-time-input');
                 if (frameTimeInput) {
-                    frameTimeInput.value = this.frameTime.toFixed(3);
+                    frameTimeInput.value = this.frameTime.toFixed(4);
                 }
             }
         }
@@ -1724,7 +1759,7 @@ export class BasePoseControlsUI {
             slider.value = String(index);
         }
         if (sliderValue && frameData.frame_time !== undefined) {
-            sliderValue.textContent = frameData.frame_time.toFixed(3) + 's';
+            sliderValue.textContent = frameData.frame_time.toFixed(4) + 's';
         }
         
         // Update navigation buttons state
@@ -1859,6 +1894,69 @@ export class BasePoseControlsUI {
     }
 
     /**
+     * Start dynamic range adjustment timer for xyz sliders
+     */
+    startRangeAdjustment() {
+        // Stop existing timer if any
+        if (this.rangeAdjustTimer) {
+            clearInterval(this.rangeAdjustTimer);
+        }
+        
+        // Check and adjust ranges every 100ms
+        this.rangeAdjustTimer = setInterval(() => {
+            this.adjustXYZSliderRanges();
+        }, 100);
+    }
+
+    /**
+     * Adjust xyz slider ranges dynamically based on current values
+     * Only expands ranges, never shrinks them
+     */
+    adjustXYZSliderRanges() {
+        const axes = ['x', 'y', 'z'];
+        
+        axes.forEach(axis => {
+            const currentValue = this.basePose[axis];
+            const slider = document.querySelector(`.base-pose-slider[data-axis="${axis}"]`);
+            
+            if (!slider) return;
+            
+            const currentMin = parseFloat(slider.min);
+            const currentMax = parseFloat(slider.max);
+            
+            // Calculate desired range: current value ± 0.3
+            const desiredMin = currentValue - 0.3;
+            const desiredMax = currentValue + 0.3;
+            
+            // Only expand, never shrink
+            let newMin = currentMin;
+            let newMax = currentMax;
+            
+            if (desiredMin < currentMin) {
+                newMin = desiredMin;
+            }
+            if (desiredMax > currentMax) {
+                newMax = desiredMax;
+            }
+            
+            // Update if range changed
+            if (newMin !== currentMin || newMax !== currentMax) {
+                slider.min = newMin.toString();
+                slider.max = newMax.toString();
+                
+                // Update stored range
+                this.xyzSliderRanges[axis] = { min: newMin, max: newMax };
+                
+                // Update min/max labels
+                const control = slider.closest('.base-pose-control');
+                if (control && control._updateDisplay) {
+                    control._updateDisplay();
+                }
+            }
+        });
+    }
+
+    /**
      * Set angle unit (rad or deg)
      */
     setAngleUnit(unit) {
@@ -1875,6 +1973,12 @@ export class BasePoseControlsUI {
      * Clear controls when no model is loaded
      */
     clearControls() {
+        // Stop range adjustment timer
+        if (this.rangeAdjustTimer) {
+            clearInterval(this.rangeAdjustTimer);
+            this.rangeAdjustTimer = null;
+        }
+        
         const container = document.getElementById('base-pose-controls');
         if (!container) return;
 
