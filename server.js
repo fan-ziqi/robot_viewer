@@ -318,13 +318,13 @@ app.post('/api/save-csv-file', (req, res) => {
 });
 
 /**
- * API 端点：应用偏移量到文件中的所有帧
+ * API 端点：应用偏移量和时间缩放到文件中的所有帧
  * 使用: POST /api/apply-offset
- * Body: { file: './frames/frame_robot.json', offset: { x: 0.1, y: 0.2, z: 0.3 } }
+ * Body: { file: './frames/frame_robot.json', offset: { x: 0.1, y: 0.2, z: 0.3 }, timeScale: 0.5 }
  */
 app.post('/api/apply-offset', (req, res) => {
     try {
-        const { file, offset } = req.body;
+        const { file, offset, timeScale } = req.body;
         
         if (!file || !offset) {
             return res.status(400).json({ 
@@ -335,6 +335,14 @@ app.post('/api/apply-offset', (req, res) => {
         if (typeof offset.x !== 'number' || typeof offset.y !== 'number' || typeof offset.z !== 'number') {
             return res.status(400).json({ 
                 error: 'Offset must have numeric x, y, z values'
+            });
+        }
+
+        // 验证时间缩放参数
+        const scale = timeScale !== undefined ? parseFloat(timeScale) : 1.0;
+        if (isNaN(scale) || scale <= 0) {
+            return res.status(400).json({ 
+                error: 'Time scale must be a positive number'
             });
         }
         
@@ -374,30 +382,60 @@ app.post('/api/apply-offset', (req, res) => {
                 error: 'No frames found in file'
             });
         }
-        
-        // 应用偏移量到所有帧
-        const updatedFrames = data.frames.map(frame => {
-            const updatedFrame = JSON.parse(JSON.stringify(frame));
+
+        // 先按 frame_time 排序
+        data.frames.sort((a, b) => (a.frame_time || 0) - (b.frame_time || 0));
+
+        // 应用时间缩放
+        // 例如: 原始时间 [1.5, 2.0, 3.0], 缩放 0.5
+        // 间隔: [0.5, 1.0] -> 缩放后: [0.25, 0.5]
+        // 累加到第一帧: [1.5, 1.75, 2.25]
+        let updatedFrames = [];
+        if (scale !== 1.0) {
+            const firstFrameTime = data.frames[0].frame_time || 0;
+            let accumulatedTime = firstFrameTime;
             
+            updatedFrames = data.frames.map((frame, index) => {
+                const updatedFrame = JSON.parse(JSON.stringify(frame));
+                
+                if (index === 0) {
+                    updatedFrame.frame_time = firstFrameTime;
+                } else {
+                    // 计算与前一帧的时间间隔
+                    const prevFrameTime = data.frames[index - 1].frame_time || 0;
+                    const currentFrameTime = frame.frame_time || 0;
+                    const interval = currentFrameTime - prevFrameTime;
+                    
+                    // 缩放时间间隔并累加
+                    const scaledInterval = interval * scale;
+                    accumulatedTime += scaledInterval;
+                    updatedFrame.frame_time = accumulatedTime;
+                }
+                
+                return updatedFrame;
+            });
+        } else {
+            updatedFrames = data.frames.map(frame => JSON.parse(JSON.stringify(frame)));
+        }
+        
+        // 应用空间偏移量到所有帧
+        updatedFrames = updatedFrames.map(frame => {
             // Ensure pos_world exists
-            if (!updatedFrame.pos_world) {
-                updatedFrame.pos_world = { x: 0, y: 0, z: 0 };
+            if (!frame.pos_world) {
+                frame.pos_world = { x: 0, y: 0, z: 0 };
             }
             
             // Apply offset to position
-            const originalX = updatedFrame.pos_world.x ?? 0;
-            const originalY = updatedFrame.pos_world.y ?? 0;
-            const originalZ = updatedFrame.pos_world.z ?? 0;
+            const originalX = frame.pos_world.x ?? 0;
+            const originalY = frame.pos_world.y ?? 0;
+            const originalZ = frame.pos_world.z ?? 0;
             
-            updatedFrame.pos_world.x = originalX + offset.x;
-            updatedFrame.pos_world.y = originalY + offset.y;
-            updatedFrame.pos_world.z = originalZ + offset.z;
+            frame.pos_world.x = originalX + offset.x;
+            frame.pos_world.y = originalY + offset.y;
+            frame.pos_world.z = originalZ + offset.z;
             
-            return updatedFrame;
+            return frame;
         });
-        
-        // 按 frame_time 排序
-        updatedFrames.sort((a, b) => (a.frame_time || 0) - (b.frame_time || 0));
         
         // 保存文件
         const dataToSave = { frames: updatedFrames };
@@ -406,7 +444,7 @@ app.post('/api/apply-offset', (req, res) => {
         res.json({
             success: true,
             count: updatedFrames.length,
-            message: 'Offset applied successfully'
+            message: `Offset and time scale (${scale.toFixed(2)}x) applied successfully`
         });
         
     } catch (error) {

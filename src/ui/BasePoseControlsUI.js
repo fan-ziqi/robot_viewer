@@ -448,6 +448,112 @@ export class BasePoseControlsUI {
                 background-color: rgba(0, 0, 0, 0.1);
                 border-color: var(--accent);
             }
+
+            /* Confirmation modal */
+            .confirm-modal-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.6);
+                backdrop-filter: blur(8px);
+                z-index: 10000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                animation: fadeIn 0.2s ease;
+            }
+
+            @keyframes fadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+
+            .confirm-modal {
+                background: var(--glass-bg);
+                border: 1px solid var(--glass-border);
+                border-radius: 16px;
+                padding: 24px;
+                max-width: 450px;
+                width: 90%;
+                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+                animation: slideUp 0.3s ease;
+            }
+
+            @keyframes slideUp {
+                from {
+                    transform: translateY(20px);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateY(0);
+                    opacity: 1;
+                }
+            }
+
+            .confirm-modal-title {
+                font-size: 18px;
+                font-weight: 700;
+                color: var(--text-primary);
+                margin-bottom: 12px;
+            }
+
+            .confirm-modal-message {
+                font-size: 14px;
+                color: var(--text-secondary);
+                line-height: 1.6;
+                margin-bottom: 20px;
+            }
+
+            .confirm-modal-warning {
+                padding: 12px;
+                background: rgba(255, 159, 10, 0.1);
+                border: 1px solid rgba(255, 159, 10, 0.3);
+                border-radius: 8px;
+                color: #ff9f0a;
+                font-size: 13px;
+                margin-bottom: 20px;
+                font-weight: 500;
+            }
+
+            .confirm-modal-buttons {
+                display: flex;
+                gap: 12px;
+                justify-content: flex-end;
+            }
+
+            .confirm-modal-btn {
+                padding: 10px 20px;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s;
+                border: 1px solid;
+            }
+
+            .confirm-modal-btn-cancel {
+                background: rgba(255, 255, 255, 0.08);
+                border-color: rgba(255, 255, 255, 0.15);
+                color: var(--text-primary);
+            }
+
+            .confirm-modal-btn-cancel:hover {
+                background: rgba(255, 255, 255, 0.12);
+                border-color: rgba(255, 255, 255, 0.25);
+            }
+
+            .confirm-modal-btn-confirm {
+                background: rgba(255, 59, 48, 0.15);
+                border-color: rgba(255, 59, 48, 0.3);
+                color: #ff3b30;
+            }
+
+            .confirm-modal-btn-confirm:hover {
+                background: rgba(255, 59, 48, 0.25);
+                border-color: rgba(255, 59, 48, 0.5);
+            }
         `;
         document.head.appendChild(style);
     }
@@ -612,6 +718,34 @@ export class BasePoseControlsUI {
         });
 
         worldOffsetGroup.appendChild(offsetInputContainer);
+
+        // Add time scale input
+        const timeScaleContainer = document.createElement('div');
+        timeScaleContainer.style.cssText = 'display: flex; gap: 8px; align-items: center; margin-top: 12px;';
+        
+        const timeScaleLabel = document.createElement('label');
+        timeScaleLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500; min-width: 80px;';
+        timeScaleLabel.textContent = window.i18n?.t('timeScale') || 'Time Scale';
+        
+        const timeScaleInput = document.createElement('input');
+        timeScaleInput.type = 'number';
+        timeScaleInput.className = 'base-pose-frame-input';
+        timeScaleInput.id = 'time-scale-input';
+        timeScaleInput.value = '1.0';
+        timeScaleInput.step = '0.01';
+        timeScaleInput.min = '0.01';
+        timeScaleInput.max = '10.0';
+        timeScaleInput.style.cssText = 'text-align: center; flex: 1; padding: 6px 4px;';
+        timeScaleInput.placeholder = '1.0';
+        
+        const timeScaleHint = document.createElement('span');
+        timeScaleHint.style.cssText = 'font-size: 10px; color: var(--text-tertiary); margin-left: 4px;';
+        timeScaleHint.textContent = '(0.5 = half speed)';
+        
+        timeScaleContainer.appendChild(timeScaleLabel);
+        timeScaleContainer.appendChild(timeScaleInput);
+        timeScaleContainer.appendChild(timeScaleHint);
+        worldOffsetGroup.appendChild(timeScaleContainer);
 
         // Add Apply Offset button
         const applyOffsetBtn = document.createElement('button');
@@ -1425,6 +1559,75 @@ export class BasePoseControlsUI {
     }
 
     /**
+     * Show confirmation modal
+     * @param {string} title - Modal title
+     * @param {string} message - Modal message
+     * @param {string} warning - Warning message (optional)
+     * @returns {Promise<boolean>} - True if confirmed, false if cancelled
+     */
+    showConfirmModal(title, message, warning = '') {
+        return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'confirm-modal-overlay';
+            
+            const modal = document.createElement('div');
+            modal.className = 'confirm-modal';
+            
+            const modalTitle = document.createElement('div');
+            modalTitle.className = 'confirm-modal-title';
+            modalTitle.textContent = title;
+            
+            const modalMessage = document.createElement('div');
+            modalMessage.className = 'confirm-modal-message';
+            modalMessage.textContent = message;
+            
+            modal.appendChild(modalTitle);
+            modal.appendChild(modalMessage);
+            
+            if (warning) {
+                const modalWarning = document.createElement('div');
+                modalWarning.className = 'confirm-modal-warning';
+                modalWarning.textContent = warning;
+                modal.appendChild(modalWarning);
+            }
+            
+            const buttons = document.createElement('div');
+            buttons.className = 'confirm-modal-buttons';
+            
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'confirm-modal-btn confirm-modal-btn-cancel';
+            cancelBtn.textContent = window.i18n?.t('cancel') || 'Cancel';
+            cancelBtn.addEventListener('click', () => {
+                document.body.removeChild(overlay);
+                resolve(false);
+            });
+            
+            const confirmBtn = document.createElement('button');
+            confirmBtn.className = 'confirm-modal-btn confirm-modal-btn-confirm';
+            confirmBtn.textContent = window.i18n?.t('confirm') || 'Confirm';
+            confirmBtn.addEventListener('click', () => {
+                document.body.removeChild(overlay);
+                resolve(true);
+            });
+            
+            buttons.appendChild(cancelBtn);
+            buttons.appendChild(confirmBtn);
+            modal.appendChild(buttons);
+            
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+            
+            // Close on overlay click
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    document.body.removeChild(overlay);
+                    resolve(false);
+                }
+            });
+        });
+    }
+
+    /**
      * Apply world offset to all frames in the file and save
      */
     async applyOffsetToFile(model) {
@@ -1440,6 +1643,26 @@ export class BasePoseControlsUI {
             if (frameFileNameInput) {
                 frameFileNameInput.focus();
             }
+            return;
+        }
+
+        // Get time scale value
+        const timeScaleInput = document.getElementById('time-scale-input');
+        const timeScale = timeScaleInput ? parseFloat(timeScaleInput.value) : 1.0;
+        
+        if (isNaN(timeScale) || timeScale <= 0) {
+            this.showNotification(window.i18n?.t('invalidTimeScale') || 'Invalid time scale value', 'error');
+            return;
+        }
+
+        // Show confirmation dialog
+        const confirmed = await this.showConfirmModal(
+            window.i18n?.t('confirmApplyOffset') || 'Apply Offset & Time Scale',
+            window.i18n?.t('confirmApplyOffsetMessage') || `This will modify all frames in the file with offset (${this.worldOffset.x.toFixed(4)}, ${this.worldOffset.y.toFixed(4)}, ${this.worldOffset.z.toFixed(4)}) and time scale ${timeScale.toFixed(2)}x.`,
+            window.i18n?.t('backupWarning') || '⚠️ Please backup your file before proceeding! This operation cannot be undone.'
+        );
+        
+        if (!confirmed) {
             return;
         }
 
@@ -1465,7 +1688,8 @@ export class BasePoseControlsUI {
                         x: this.worldOffset.x,
                         y: this.worldOffset.y,
                         z: this.worldOffset.z
-                    }
+                    },
+                    timeScale: timeScale
                 })
             });
 
