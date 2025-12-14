@@ -989,17 +989,130 @@ export class BasePoseControlsUI {
         freqGroup.appendChild(freqInput);
         freqGroup.appendChild(freqUnit);
 
+        // First frame extension input group
+        const firstFrameExtGroup = document.createElement('div');
+        firstFrameExtGroup.style.display = 'flex';
+        firstFrameExtGroup.style.alignItems = 'center';
+        firstFrameExtGroup.style.gap = '8px';
+        firstFrameExtGroup.style.marginBottom = '12px';
+
+        const firstFrameExtLabel = document.createElement('label');
+        firstFrameExtLabel.style.fontSize = '11px';
+        firstFrameExtLabel.style.color = 'var(--text-secondary)';
+        firstFrameExtLabel.style.minWidth = '60px';
+        firstFrameExtLabel.textContent = (window.i18n?.t('firstFrameExtend') || 'First Frame Extend') + ':';
+
+        const firstFrameExtInput = document.createElement('input');
+        firstFrameExtInput.type = 'number';
+        firstFrameExtInput.id = 'first-frame-extend-input';
+        firstFrameExtInput.value = '0';
+        firstFrameExtInput.min = '0';
+        firstFrameExtInput.step = '0.01';
+        firstFrameExtInput.style.flex = '1';
+        firstFrameExtInput.style.padding = '6px 10px';
+        firstFrameExtInput.style.background = 'rgba(255, 255, 255, 0.04)';
+        firstFrameExtInput.style.border = '1px solid rgba(255, 255, 255, 0.15)';
+        firstFrameExtInput.style.borderRadius = '6px';
+        firstFrameExtInput.style.color = 'var(--text-primary)';
+        firstFrameExtInput.style.fontSize = '12px';
+
+        const firstFrameExtUnit = document.createElement('span');
+        firstFrameExtUnit.style.fontSize = '11px';
+        firstFrameExtUnit.style.color = 'var(--text-secondary)';
+        firstFrameExtUnit.textContent = 's';
+
+        firstFrameExtGroup.appendChild(firstFrameExtLabel);
+        firstFrameExtGroup.appendChild(firstFrameExtInput);
+        firstFrameExtGroup.appendChild(firstFrameExtUnit);
+
+        // Last frame extension input group
+        const lastFrameExtGroup = document.createElement('div');
+        lastFrameExtGroup.style.display = 'flex';
+        lastFrameExtGroup.style.alignItems = 'center';
+        lastFrameExtGroup.style.gap = '8px';
+        lastFrameExtGroup.style.marginBottom = '12px';
+
+        const lastFrameExtLabel = document.createElement('label');
+        lastFrameExtLabel.style.fontSize = '11px';
+        lastFrameExtLabel.style.color = 'var(--text-secondary)';
+        lastFrameExtLabel.style.minWidth = '60px';
+        lastFrameExtLabel.textContent = (window.i18n?.t('lastFrameExtend') || 'Last Frame Extend') + ':';
+
+        const lastFrameExtInput = document.createElement('input');
+        lastFrameExtInput.type = 'number';
+        lastFrameExtInput.id = 'last-frame-extend-input';
+        lastFrameExtInput.value = '0';
+        lastFrameExtInput.min = '0';
+        lastFrameExtInput.step = '0.01';
+        lastFrameExtInput.style.flex = '1';
+        lastFrameExtInput.style.padding = '6px 10px';
+        lastFrameExtInput.style.background = 'rgba(255, 255, 255, 0.04)';
+        lastFrameExtInput.style.border = '1px solid rgba(255, 255, 255, 0.15)';
+        lastFrameExtInput.style.borderRadius = '6px';
+        lastFrameExtInput.style.color = 'var(--text-primary)';
+        lastFrameExtInput.style.fontSize = '12px';
+
+        const lastFrameExtUnit = document.createElement('span');
+        lastFrameExtUnit.style.fontSize = '11px';
+        lastFrameExtUnit.style.color = 'var(--text-secondary)';
+        lastFrameExtUnit.textContent = 's';
+
+        lastFrameExtGroup.appendChild(lastFrameExtLabel);
+        lastFrameExtGroup.appendChild(lastFrameExtInput);
+        lastFrameExtGroup.appendChild(lastFrameExtUnit);
+
+        // Z-axis offset input group
+        const zOffsetGroup = document.createElement('div');
+        zOffsetGroup.style.display = 'flex';
+        zOffsetGroup.style.alignItems = 'center';
+        zOffsetGroup.style.gap = '8px';
+        zOffsetGroup.style.marginBottom = '12px';
+
+        const zOffsetLabel = document.createElement('label');
+        zOffsetLabel.style.fontSize = '11px';
+        zOffsetLabel.style.color = 'var(--text-secondary)';
+        zOffsetLabel.style.minWidth = '60px';
+        zOffsetLabel.textContent = (window.i18n?.t('zAxisOffset') || 'Z-Axis Offset') + ':';
+
+        const zOffsetInput = document.createElement('input');
+        zOffsetInput.type = 'number';
+        zOffsetInput.id = 'z-axis-offset-input';
+        zOffsetInput.value = '0';
+        zOffsetInput.step = '0.0001';
+        zOffsetInput.style.flex = '1';
+        zOffsetInput.style.padding = '6px 10px';
+        zOffsetInput.style.background = 'rgba(255, 255, 255, 0.04)';
+        zOffsetInput.style.border = '1px solid rgba(255, 255, 255, 0.15)';
+        zOffsetInput.style.borderRadius = '6px';
+        zOffsetInput.style.color = 'var(--text-primary)';
+        zOffsetInput.style.fontSize = '12px';
+
+        const zOffsetUnit = document.createElement('span');
+        zOffsetUnit.style.fontSize = '11px';
+        zOffsetUnit.style.color = 'var(--text-secondary)';
+        zOffsetUnit.textContent = 'm';
+
+        zOffsetGroup.appendChild(zOffsetLabel);
+        zOffsetGroup.appendChild(zOffsetInput);
+        zOffsetGroup.appendChild(zOffsetUnit);
+
         // Interpolate button
         const interpolateBtn = document.createElement('button');
         interpolateBtn.id = 'interpolate-frames-btn';
         interpolateBtn.className = 'interpolate-frames-btn';
         interpolateBtn.textContent = window.i18n?.t('interpolateAndSave') || 'Interpolate & Save';
         interpolateBtn.addEventListener('click', async () => {
-            await this.interpolateFrames(model, parseFloat(freqInput.value) || 30);
+            const firstFrameExtend = parseFloat(firstFrameExtInput.value) || 0;
+            const lastFrameExtend = parseFloat(lastFrameExtInput.value) || 0;
+            const zOffset = parseFloat(zOffsetInput.value) || 0;
+            await this.interpolateFrames(model, parseFloat(freqInput.value) || 30, firstFrameExtend, lastFrameExtend, zOffset);
         });
 
         interpolateSection.appendChild(interpolateTitle);
         interpolateSection.appendChild(freqGroup);
+        interpolateSection.appendChild(firstFrameExtGroup);
+        interpolateSection.appendChild(lastFrameExtGroup);
+        interpolateSection.appendChild(zOffsetGroup);
         interpolateSection.appendChild(interpolateBtn);
         container.appendChild(interpolateSection);
 
@@ -2229,8 +2342,11 @@ export class BasePoseControlsUI {
      * Interpolate frames from JSON file and save as CSV
      * @param {Object} model - Current robot model
      * @param {number} fps - Frames per second for interpolation (default: 30)
+     * @param {number} firstFrameExtend - Extension duration for first frame in seconds (default: 0)
+     * @param {number} lastFrameExtend - Extension duration for last frame in seconds (default: 0)
+     * @param {number} zOffset - Z-axis offset to apply to CSV third column (default: 0)
      */
-    async interpolateFrames(model, fps = 30) {
+    async interpolateFrames(model, fps = 30, firstFrameExtend = 0, lastFrameExtend = 0, zOffset = 0) {
         if (!model) {
             this.showNotification('No model loaded', 'error');
             return;
@@ -2328,6 +2444,38 @@ export class BasePoseControlsUI {
                 t += dt;
             }
 
+            // Extend first frame if needed
+            if (firstFrameExtend > 0) {
+                const firstFrameExtendFrames = Math.round(firstFrameExtend * fps);
+                const firstFrame = trajectory[0];
+                const extendedFrames = [];
+                
+                // Add extended frames before the first frame (copy first frame)
+                for (let i = 0; i < firstFrameExtendFrames; i++) {
+                    const extendedFrame = JSON.parse(JSON.stringify(firstFrame)); // Deep copy
+                    extendedFrames.push(extendedFrame);
+                }
+                
+                // Prepend extended frames to trajectory
+                trajectory.unshift(...extendedFrames);
+            }
+
+            // Extend last frame if needed
+            if (lastFrameExtend > 0) {
+                const lastFrameExtendFrames = Math.round(lastFrameExtend * fps);
+                const lastFrame = trajectory[trajectory.length - 1];
+                const extendedFrames = [];
+                
+                // Add extended frames after the last frame (copy last frame)
+                for (let i = 0; i < lastFrameExtendFrames; i++) {
+                    const extendedFrame = JSON.parse(JSON.stringify(lastFrame)); // Deep copy
+                    extendedFrames.push(extendedFrame);
+                }
+                
+                // Append extended frames to trajectory
+                trajectory.push(...extendedFrames);
+            }
+
             // Convert to CSV format
             const csvLines = [];
             for (const frame of trajectory) {
@@ -2337,9 +2485,12 @@ export class BasePoseControlsUI {
                 if (frame.pos_world) {
                     row.push(frame.pos_world.x.toFixed(6));
                     row.push(frame.pos_world.y.toFixed(6));
-                    row.push(frame.pos_world.z.toFixed(6));
+                    // Apply z-axis offset to third column
+                    const zValue = (frame.pos_world.z || 0) + zOffset;
+                    row.push(zValue.toFixed(6));
                 } else {
-                    row.push('0.000000', '0.000000', '0.000000');
+                    // Apply z-axis offset even if pos_world is missing
+                    row.push('0.000000', '0.000000', zOffset.toFixed(6));
                 }
 
                 // Rotation quaternion (4 columns)
@@ -2413,11 +2564,28 @@ export class BasePoseControlsUI {
                 throw new Error(saveResult.error);
             }
 
+            // Calculate original frame count (before extension)
+            const originalFrameCount = trajectory.length - 
+                (firstFrameExtend > 0 ? Math.round(firstFrameExtend * fps) : 0) - 
+                (lastFrameExtend > 0 ? Math.round(lastFrameExtend * fps) : 0);
+            
             // Format success message with parameters
-            const successMsg = (window.i18n?.t('interpolateSuccess') || 'Successfully interpolated {count} frames at {fps}Hz and saved to {path}')
+            let successMsg = (window.i18n?.t('interpolateSuccess') || 'Successfully interpolated {count} frames at {fps}Hz and saved to {path}')
                 .replace('{count}', trajectory.length)
                 .replace('{fps}', fps)
                 .replace('{path}', outputPath);
+            
+            // Add extension info if any extension was applied
+            if (firstFrameExtend > 0 || lastFrameExtend > 0) {
+                const extensionInfo = [];
+                if (firstFrameExtend > 0) {
+                    extensionInfo.push(`${Math.round(firstFrameExtend * fps)} frames extended at start`);
+                }
+                if (lastFrameExtend > 0) {
+                    extensionInfo.push(`${Math.round(lastFrameExtend * fps)} frames extended at end`);
+                }
+                successMsg += ` (${extensionInfo.join(', ')})`;
+            }
             
             this.showNotification(successMsg, 'success');
 
@@ -2725,6 +2893,42 @@ export class BasePoseControlsUI {
                 const freqLabel = freqGroup.querySelector('label');
                 if (freqLabel) {
                     freqLabel.textContent = (window.i18n?.t('frequency') || 'Frequency') + ':';
+                }
+            }
+        }
+
+        // Update first frame extend label
+        const firstFrameExtInput = document.getElementById('first-frame-extend-input');
+        if (firstFrameExtInput) {
+            const firstFrameExtGroup = firstFrameExtInput.closest('div');
+            if (firstFrameExtGroup) {
+                const firstFrameExtLabel = firstFrameExtGroup.querySelector('label');
+                if (firstFrameExtLabel) {
+                    firstFrameExtLabel.textContent = (window.i18n?.t('firstFrameExtend') || 'First Frame Extend') + ':';
+                }
+            }
+        }
+
+        // Update last frame extend label
+        const lastFrameExtInput = document.getElementById('last-frame-extend-input');
+        if (lastFrameExtInput) {
+            const lastFrameExtGroup = lastFrameExtInput.closest('div');
+            if (lastFrameExtGroup) {
+                const lastFrameExtLabel = lastFrameExtGroup.querySelector('label');
+                if (lastFrameExtLabel) {
+                    lastFrameExtLabel.textContent = (window.i18n?.t('lastFrameExtend') || 'Last Frame Extend') + ':';
+                }
+            }
+        }
+
+        // Update z-axis offset label
+        const zOffsetInput = document.getElementById('z-axis-offset-input');
+        if (zOffsetInput) {
+            const zOffsetGroup = zOffsetInput.closest('div');
+            if (zOffsetGroup) {
+                const zOffsetLabel = zOffsetGroup.querySelector('label');
+                if (zOffsetLabel) {
+                    zOffsetLabel.textContent = (window.i18n?.t('zAxisOffset') || 'Z-Axis Offset') + ':';
                 }
             }
         }
