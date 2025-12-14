@@ -1,0 +1,436 @@
+{
+  "frames": [
+    {
+      "frame_time": 12.433,
+      "joint_angles": {
+        "FL_calf_joint": -1.5,
+        "FL_hip_joint": 0,
+        "FL_thigh_joint": 0.8,
+        "FR_calf_joint": -1.5,
+        "FR_hip_joint": 0,
+        "FR_thigh_joint": 0.8,
+        "RL_calf_joint": -1.5,
+        "RL_hip_joint": 0,
+        "RL_thigh_joint": 1,
+        "RR_calf_joint": -1.5,
+        "RR_hip_joint": 0,
+        "RR_thigh_joint": 1
+      },
+      "rpy": {
+        "roll": 0,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0,
+        "z": 0.003400000000000014
+      }
+    },
+    {
+      "frame_time": 12.633,
+      "joint_angles": {
+        "FL_calf_joint": -1.2696534648301014,
+        "FL_hip_joint": -0.43563946083775035,
+        "FL_thigh_joint": 0.7014360993989545,
+        "FR_calf_joint": -1.5863191213730374,
+        "FR_hip_joint": -0.5194100096,
+        "FR_thigh_joint": 0.9258894347338326,
+        "RL_calf_joint": -1.151188509279865,
+        "RL_hip_joint": -0.44,
+        "RL_thigh_joint": 0.8185452320977779,
+        "RR_calf_joint": -1.5557292970142416,
+        "RR_hip_joint": -0.5033950207582494,
+        "RR_thigh_joint": 1.0342130926185233
+      },
+      "rpy": {
+        "roll": 0.494407346410207,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0,
+        "z": 0.003400000000000014
+      }
+    },
+    {
+      "frame_time": 12.767,
+      "joint_angles": {
+        "FL_calf_joint": -1.314009417038139,
+        "FL_hip_joint": 0,
+        "FL_thigh_joint": 0.7161065661085001,
+        "FR_calf_joint": -1.5,
+        "FR_hip_joint": -0.7177991347446395,
+        "FR_thigh_joint": 0.6500106964610428,
+        "RL_calf_joint": -1.1921022592970523,
+        "RL_hip_joint": 0,
+        "RL_thigh_joint": 0.821796817444122,
+        "RR_calf_joint": -1.5,
+        "RR_hip_joint": -0.7477505342186553,
+        "RR_thigh_joint": 0.7049114395154304
+      },
+      "rpy": {
+        "roll": 0,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0,
+        "z": 0.0323
+      }
+    },
+    {
+      "frame_time": 12.833,
+      "joint_angles": {
+        "FL_calf_joint": -1.1891928691975335,
+        "FL_hip_joint": 0.5906194464,
+        "FL_thigh_joint": 0.632844252467441,
+        "FR_calf_joint": -1.5,
+        "FR_hip_joint": -0.8744154216753888,
+        "FR_thigh_joint": 0.3116327324615426,
+        "RL_calf_joint": -1.0355395756193253,
+        "RL_hip_joint": 0.607374608,
+        "RL_thigh_joint": 0.7617548651826894,
+        "RR_calf_joint": -1.5,
+        "RR_hip_joint": -0.8690371121145819,
+        "RR_thigh_joint": 0.35923130541910553
+      },
+      "rpy": {
+        "roll": -0.574592653589793,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0,
+        "z": 0.0723
+      }
+    },
+    {
+      "frame_time": 12.867,
+      "joint_angles": {
+        "FL_calf_joint": -0.837758,
+        "FL_hip_joint": 1.0471976,
+        "FL_thigh_joint": 0.4276668289944734,
+        "FR_calf_joint": -1.5,
+        "FR_hip_joint": -1.0471976,
+        "FR_thigh_joint": 0.3281201805842822,
+        "RL_calf_joint": -0.837758,
+        "RL_hip_joint": 1.0471976,
+        "RL_thigh_joint": 0.5237677969960551,
+        "RR_calf_joint": -1.5,
+        "RR_hip_joint": -1.0471976,
+        "RR_thigh_joint": 0.35923130541910553
+      },
+      "rpy": {
+        "roll": -0.975592653589793,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0,
+        "z": 0.0952
+      }
+    },
+    {
+      "frame_time": 12.9,
+      "joint_angles": {
+        "FL_calf_joint": -1.1440394755907617,
+        "FL_hip_joint": 1.0471976,
+        "FL_thigh_joint": 0.47403498546182976,
+        "FR_calf_joint": -1.5,
+        "FR_hip_joint": -1.0471976,
+        "FR_thigh_joint": 0.3281201805842822,
+        "RL_calf_joint": -0.837758,
+        "RL_hip_joint": 1.0471976,
+        "RL_thigh_joint": 0.5237677969960551,
+        "RR_calf_joint": -1.5,
+        "RR_hip_joint": -1.0471976,
+        "RR_thigh_joint": 0.35923130541910553
+      },
+      "rpy": {
+        "roll": -1.53759265358979,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0,
+        "z": 0.1751
+      }
+    },
+    {
+      "frame_time": 12.933,
+      "joint_angles": {
+        "FL_calf_joint": -1.1440394755907617,
+        "FL_hip_joint": 1.0471976,
+        "FL_thigh_joint": 0.47403498546182976,
+        "FR_calf_joint": -1.5,
+        "FR_hip_joint": -1.0471976,
+        "FR_thigh_joint": 0.3281201805842822,
+        "RL_calf_joint": -0.837758,
+        "RL_hip_joint": 1.0471976,
+        "RL_thigh_joint": 0.5237677969960551,
+        "RR_calf_joint": -1.5,
+        "RR_hip_joint": -1.0471976,
+        "RR_thigh_joint": 0.35923130541910553
+      },
+      "rpy": {
+        "roll": -2.07259265358979,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0,
+        "z": 0.189
+      }
+    },
+    {
+      "frame_time": 12.967,
+      "joint_angles": {
+        "FL_calf_joint": -1.1440394755907617,
+        "FL_hip_joint": 1.0471976,
+        "FL_thigh_joint": 0.47403498546182976,
+        "FR_calf_joint": -1.5,
+        "FR_hip_joint": -1.0471976,
+        "FR_thigh_joint": 0.3281201805842822,
+        "RL_calf_joint": -0.837758,
+        "RL_hip_joint": 1.0471976,
+        "RL_thigh_joint": 0.5237677969960551,
+        "RR_calf_joint": -1.5,
+        "RR_hip_joint": -1.0471976,
+        "RR_thigh_joint": 0.35923130541910553
+      },
+      "rpy": {
+        "roll": -2.47359265358979,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0,
+        "z": 0.189
+      }
+    },
+    {
+      "frame_time": 13,
+      "joint_angles": {
+        "FL_calf_joint": -1.1440394755907617,
+        "FL_hip_joint": 1.0471976,
+        "FL_thigh_joint": 0.47403498546182976,
+        "FR_calf_joint": -1.5,
+        "FR_hip_joint": -1.0471976,
+        "FR_thigh_joint": 0.5714378266956602,
+        "RL_calf_joint": -0.837758,
+        "RL_hip_joint": 1.0471976,
+        "RL_thigh_joint": 0.5237677969960551,
+        "RR_calf_joint": -1.5,
+        "RR_hip_joint": -1.0471976,
+        "RR_thigh_joint": 0.48451341242801693
+      },
+      "rpy": {
+        "roll": -2.90059265358979,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0,
+        "z": 0.189
+      }
+    },
+    {
+      "frame_time": 13.067,
+      "joint_angles": {
+        "FL_calf_joint": -1.7921074175013412,
+        "FL_hip_joint": 0.6555355979981156,
+        "FL_thigh_joint": 0.7990562355902072,
+        "FR_calf_joint": -1.360688768009263,
+        "FR_hip_joint": -0.24861162102296674,
+        "FR_thigh_joint": 0.8600883970766362,
+        "RL_calf_joint": -1.6230343951889568,
+        "RL_hip_joint": 0.6199133023247868,
+        "RL_thigh_joint": 0.7652299643363546,
+        "RR_calf_joint": -1.2726086445046383,
+        "RR_hip_joint": -0.31059176553351253,
+        "RR_thigh_joint": 0.6565571865138792
+      },
+      "rpy": {
+        "roll": 2.47340734641021,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0,
+        "z": 0.189
+      }
+    },
+    {
+      "frame_time": 13.133,
+      "joint_angles": {
+        "FL_calf_joint": -1.6923365976909992,
+        "FL_hip_joint": 0.06921933186218562,
+        "FL_thigh_joint": 0.988918496124288,
+        "FR_calf_joint": -1.360688768009263,
+        "FR_hip_joint": -0.041124029876711335,
+        "FR_thigh_joint": 0.8600883970766362,
+        "RL_calf_joint": -1.7522813918389915,
+        "RL_hip_joint": -0.023291200642348714,
+        "RL_thigh_joint": 0.8267528770697347,
+        "RR_calf_joint": -1.2726086445046383,
+        "RR_hip_joint": 0.0015611747667844574,
+        "RR_thigh_joint": 0.6565571865138792
+      },
+      "rpy": {
+        "roll": 1.91140734641021,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0,
+        "z": 0.189
+      }
+    },
+    {
+      "frame_time": 13.2,
+      "joint_angles": {
+        "FL_calf_joint": -1.6923365976909992,
+        "FL_hip_joint": 0.06921933186218562,
+        "FL_thigh_joint": 0.988918496124288,
+        "FR_calf_joint": -1.815288711281969,
+        "FR_hip_joint": -0.041124029876711335,
+        "FR_thigh_joint": 1.053171445951292,
+        "RL_calf_joint": -1.7090249158280673,
+        "RL_hip_joint": -0.023291200642348714,
+        "RL_thigh_joint": 0.9220503319172809,
+        "RR_calf_joint": -1.6055886993492434,
+        "RR_hip_joint": 0.0015611747667844574,
+        "RR_thigh_joint": 0.8432186150142676
+      },
+      "rpy": {
+        "roll": 0.574407346410207,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0.0537,
+        "z": 0.1332
+      }
+    },
+    {
+      "frame_time": 13.233,
+      "joint_angles": {
+        "FL_calf_joint": -1.4934608057916416,
+        "FL_hip_joint": 0.06921933186218562,
+        "FL_thigh_joint": 0.8629751743129891,
+        "FR_calf_joint": -1.815288711281969,
+        "FR_hip_joint": -0.041124029876711335,
+        "FR_thigh_joint": 1.053171445951292,
+        "RL_calf_joint": -1.7090249158280673,
+        "RL_hip_joint": -0.023291200642348714,
+        "RL_thigh_joint": 0.9220503319172809,
+        "RR_calf_joint": -1.6055886993492434,
+        "RR_hip_joint": 0.0015611747667844574,
+        "RR_thigh_joint": 0.8432186150142676
+      },
+      "rpy": {
+        "roll": 0.254407346410207,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0.0537,
+        "z": 0.0129
+      }
+    },
+    {
+      "frame_time": 13.267,
+      "joint_angles": {
+        "FL_calf_joint": -1.7002500387121713,
+        "FL_hip_joint": 0.06921933186218562,
+        "FL_thigh_joint": 0.9865138457382732,
+        "FR_calf_joint": -1.9601120082632428,
+        "FR_hip_joint": -0.041124029876711335,
+        "FR_thigh_joint": 1.082574167862325,
+        "RL_calf_joint": -1.7843839140392435,
+        "RL_hip_joint": -0.023291200642348714,
+        "RL_thigh_joint": 0.888283371410255,
+        "RR_calf_joint": -1.9099536520483678,
+        "RR_hip_joint": 0.0015611747667844574,
+        "RR_thigh_joint": 1.0251488511799176
+      },
+      "rpy": {
+        "roll": 0.040407346410207,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0.0537,
+        "z": -0.0617
+      }
+    },
+    {
+      "frame_time": 13.333,
+      "joint_angles": {
+        "FL_calf_joint": -2.039251395278894,
+        "FL_hip_joint": 0.06921933186218562,
+        "FL_thigh_joint": 1.200289947306932,
+        "FR_calf_joint": -2.083452446885103,
+        "FR_hip_joint": -0.041124029876711335,
+        "FR_thigh_joint": 1.3062626871897831,
+        "RL_calf_joint": -2.083463289942106,
+        "RL_hip_joint": -0.023291200642348714,
+        "RL_thigh_joint": 1.0305740079155392,
+        "RR_calf_joint": -2.1540407902179632,
+        "RR_hip_joint": 0.0015611747667844574,
+        "RR_thigh_joint": 1.0750744890197639
+      },
+      "rpy": {
+        "roll": 0.040407346410207,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0.0537,
+        "z": -0.1107
+      }
+    },
+    {
+      "frame_time": 13.8,
+      "joint_angles": {
+        "FL_calf_joint": -1.4870862040932216,
+        "FL_hip_joint": 0.06921933186218562,
+        "FL_thigh_joint": 0.9247232894630468,
+        "FR_calf_joint": -1.49,
+        "FR_hip_joint": -0.041124029876711335,
+        "FR_thigh_joint": 0.92,
+        "RL_calf_joint": -1.5233460044908058,
+        "RL_hip_joint": -0.023291200642348714,
+        "RL_thigh_joint": 0.740419000159319,
+        "RR_calf_joint": -1.52,
+        "RR_hip_joint": 0.0015611747667844574,
+        "RR_thigh_joint": 0.74
+      },
+      "rpy": {
+        "roll": 0.040407346410207,
+        "pitch": 0,
+        "yaw": 0
+      },
+      "pos_world": {
+        "x": 0,
+        "y": 0.0537,
+        "z": -0.0114
+      }
+    }
+  ]
+}

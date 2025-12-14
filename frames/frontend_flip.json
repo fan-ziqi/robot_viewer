@@ -24,11 +24,11 @@
       "pos_world": {
         "x": 0,
         "y": 0,
-        "z": 0.003400000000000014
+        "z": 0.33740000000000003
       }
     },
     {
-      "frame_time": 1.8,
+      "frame_time": 1.65,
       "joint_angles": {
         "FL_calf_joint": -1.8236985855324792,
         "FL_hip_joint": 0,
@@ -51,11 +51,11 @@
       "pos_world": {
         "x": 0,
         "y": 0,
-        "z": -0.0534
+        "z": 0.2806
       }
     },
     {
-      "frame_time": 1.84,
+      "frame_time": 1.67,
       "joint_angles": {
         "FL_calf_joint": -1.7133194362947826,
         "FL_hip_joint": 0,
@@ -78,11 +78,11 @@
       "pos_world": {
         "x": 0,
         "y": 0,
-        "z": -0.0534
+        "z": 0.2806
       }
     },
     {
-      "frame_time": 1.88,
+      "frame_time": 1.69,
       "joint_angles": {
         "FL_calf_joint": -1.8776804197434362,
         "FL_hip_joint": 0,
@@ -105,11 +105,11 @@
       "pos_world": {
         "x": 0,
         "y": 0,
-        "z": -0.0534
+        "z": 0.2806
       }
     },
     {
-      "frame_time": 1.92,
+      "frame_time": 1.71,
       "joint_angles": {
         "FL_calf_joint": -1.7590708574550753,
         "FL_hip_joint": 0,
@@ -132,11 +132,11 @@
       "pos_world": {
         "x": 0.0526,
         "y": 0,
-        "z": -0.0288
+        "z": 0.3052
       }
     },
     {
-      "frame_time": 1.99,
+      "frame_time": 1.745,
       "joint_angles": {
         "FL_calf_joint": -1.8403595872236065,
         "FL_hip_joint": 0,
@@ -159,11 +159,11 @@
       "pos_world": {
         "x": 0.0526,
         "y": 0,
-        "z": -0.0131
+        "z": 0.3209
       }
     },
     {
-      "frame_time": 2.06,
+      "frame_time": 1.7800000000000002,
       "joint_angles": {
         "FL_calf_joint": -1.8403595872236065,
         "FL_hip_joint": 0,
@@ -186,18 +186,18 @@
       "pos_world": {
         "x": 0.0646,
         "y": 0,
-        "z": 0.0301
+        "z": 0.36410000000000003
       }
     },
     {
-      "frame_time": 2.11,
+      "frame_time": 1.8050000000000002,
       "joint_angles": {
-        "FL_calf_joint": -1.8403595872236065,
+        "FL_calf_joint": -2.02,
         "FL_hip_joint": 0,
-        "FL_thigh_joint": 0.6008802862860516,
-        "FR_calf_joint": -1.84,
+        "FL_thigh_joint": 0.49,
+        "FR_calf_joint": -2.0235459040295547,
         "FR_hip_joint": 0,
-        "FR_thigh_joint": 0.6,
+        "FR_thigh_joint": 0.48874031545549035,
         "RL_calf_joint": -1.0068414378545092,
         "RL_hip_joint": 0,
         "RL_thigh_joint": -0.021555662731721124,
@@ -211,47 +211,20 @@
         "yaw": 0
       },
       "pos_world": {
-        "x": 0.1192,
+        "x": 0.0585000000000001,
         "y": 0,
-        "z": 0.0385
+        "z": 0.3725
       }
     },
     {
-      "frame_time": 2.24,
+      "frame_time": 1.9300000000000002,
       "joint_angles": {
-        "FL_calf_joint": -1.7562571404050387,
+        "FL_calf_joint": -1.9,
         "FL_hip_joint": 0,
-        "FL_thigh_joint": 0.45875708770913565,
-        "FR_calf_joint": -1.76,
+        "FL_thigh_joint": -0.18,
+        "FR_calf_joint": -1.8961615290376521,
         "FR_hip_joint": 0,
-        "FR_thigh_joint": 0.46,
-        "RL_calf_joint": -1.0068414378545092,
-        "RL_hip_joint": 0,
-        "RL_thigh_joint": 0.14590389896364578,
-        "RR_calf_joint": -1.01,
-        "RR_hip_joint": 0,
-        "RR_thigh_joint": 0.15
-      },
-      "rpy": {
-        "roll": 0,
-        "pitch": 1.29940734641021,
-        "yaw": 0
-      },
-      "pos_world": {
-        "x": 0.1921,
-        "y": 0,
-        "z": 0.0385
-      }
-    },
-    {
-      "frame_time": 2.36,
-      "joint_angles": {
-        "FL_calf_joint": -1.8258793390535588,
-        "FL_hip_joint": 0,
-        "FL_thigh_joint": 0.11178867705622134,
-        "FR_calf_joint": -1.83,
-        "FR_hip_joint": 0,
-        "FR_thigh_joint": 0.11,
+        "FR_thigh_joint": -0.17935908362883143,
         "RL_calf_joint": -0.9108842957963196,
         "RL_hip_joint": 0,
         "RL_thigh_joint": 0.46457371348642146,
@@ -265,40 +238,13 @@
         "yaw": 0
       },
       "pos_world": {
-        "x": 0.1921,
+        "x": 0.1204,
         "y": 0,
-        "z": 0.0734
+        "z": 0.4374
       }
     },
     {
-      "frame_time": 2.43,
-      "joint_angles": {
-        "FL_calf_joint": -1.7427023728118582,
-        "FL_hip_joint": 0,
-        "FL_thigh_joint": -0.04230488663845092,
-        "FR_calf_joint": -1.74,
-        "FR_hip_joint": 0,
-        "FR_thigh_joint": -0.04,
-        "RL_calf_joint": -0.9108842957963196,
-        "RL_hip_joint": 0,
-        "RL_thigh_joint": 0.8313867535093865,
-        "RR_calf_joint": -0.91,
-        "RR_hip_joint": 0,
-        "RR_thigh_joint": 0.83
-      },
-      "rpy": {
-        "roll": 0,
-        "pitch": 1.72840734641021,
-        "yaw": 0
-      },
-      "pos_world": {
-        "x": 0.2587,
-        "y": 0,
-        "z": 0.0586
-      }
-    },
-    {
-      "frame_time": 2.49,
+      "frame_time": 1.995,
       "joint_angles": {
         "FL_calf_joint": -1.666491066959027,
         "FL_hip_joint": 0,
@@ -321,11 +267,11 @@
       "pos_world": {
         "x": 0.2637,
         "y": 0,
-        "z": 0.0983
+        "z": 0.4323
       }
     },
     {
-      "frame_time": 2.53,
+      "frame_time": 2.0149999999999997,
       "joint_angles": {
         "FL_calf_joint": -1.7446973884725947,
         "FL_hip_joint": 0,
@@ -348,11 +294,11 @@
       "pos_world": {
         "x": 0.2938,
         "y": 0,
-        "z": 0.0647
+        "z": 0.3987
       }
     },
     {
-      "frame_time": 2.66,
+      "frame_time": 2.0799999999999996,
       "joint_angles": {
         "FL_calf_joint": -1.7446973884725947,
         "FL_hip_joint": 0,
@@ -375,11 +321,11 @@
       "pos_world": {
         "x": 0.2938,
         "y": 0,
-        "z": 0.0647
+        "z": 0.3987
       }
     },
     {
-      "frame_time": 2.72,
+      "frame_time": 2.11,
       "joint_angles": {
         "FL_calf_joint": -1.9395680324380487,
         "FL_hip_joint": 0,
@@ -402,11 +348,11 @@
       "pos_world": {
         "x": 0.2938,
         "y": 0,
-        "z": 0.0647
+        "z": 0.3987
       }
     },
     {
-      "frame_time": 2.84,
+      "frame_time": 2.1699999999999995,
       "joint_angles": {
         "FL_calf_joint": -1.9395680324380487,
         "FL_hip_joint": 0,
@@ -429,11 +375,11 @@
       "pos_world": {
         "x": 0.2938,
         "y": 0,
-        "z": 0.0647
+        "z": 0.3987
       }
     },
     {
-      "frame_time": 2.94,
+      "frame_time": 2.2199999999999993,
       "joint_angles": {
         "FL_calf_joint": -1.426304310542267,
         "FL_hip_joint": 0,
@@ -456,11 +402,11 @@
       "pos_world": {
         "x": 0.2938,
         "y": 0,
-        "z": 0.0647
+        "z": 0.3987
       }
     },
     {
-      "frame_time": 3.02,
+      "frame_time": 2.2599999999999993,
       "joint_angles": {
         "FL_calf_joint": -1.426304310542267,
         "FL_hip_joint": 0,
@@ -483,11 +429,11 @@
       "pos_world": {
         "x": 0.3276,
         "y": 0,
-        "z": 0.0523
+        "z": 0.38630000000000003
       }
     },
     {
-      "frame_time": 3.22,
+      "frame_time": 2.3599999999999994,
       "joint_angles": {
         "FL_calf_joint": -1.1360283848984938,
         "FL_hip_joint": 0,
@@ -510,11 +456,11 @@
       "pos_world": {
         "x": 0.4387,
         "y": 0,
-        "z": 0.012
+        "z": 0.34600000000000003
       }
     },
     {
-      "frame_time": 3.33,
+      "frame_time": 2.4149999999999996,
       "joint_angles": {
         "FL_calf_joint": -0.837758,
         "FL_hip_joint": 0,
@@ -537,11 +483,11 @@
       "pos_world": {
         "x": 0.5709,
         "y": 0,
-        "z": -0.053
+        "z": 0.281
       }
     },
     {
-      "frame_time": 3.41,
+      "frame_time": 2.4549999999999996,
       "joint_angles": {
         "FL_calf_joint": -1.1536766890449366,
         "FL_hip_joint": 0,
@@ -564,11 +510,11 @@
       "pos_world": {
         "x": 0.5431,
         "y": 0,
-        "z": 0.0106
+        "z": 0.3446
       }
     },
     {
-      "frame_time": 3.5,
+      "frame_time": 2.4999999999999996,
       "joint_angles": {
         "FL_calf_joint": -1.5,
         "FL_hip_joint": 0,
@@ -591,7 +537,7 @@
       "pos_world": {
         "x": 0.6184,
         "y": 0,
-        "z": -0.0112
+        "z": 0.32280000000000003
       }
     }
   ]
