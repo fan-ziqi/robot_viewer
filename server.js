@@ -39,8 +39,10 @@ const app = express();
 
 // 启用 CORS
 app.use(cors());
-// 解析 JSON body
-app.use(express.json());
+// 解析 JSON body - 增加请求体大小限制到 50MB
+app.use(express.json({ limit: '50mb' }));
+// 解析 URL 编码的 body - 也增加限制
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 /**
  * 自然排序函数 - 处理 frame_1, frame_2, frame_10 这样的文件名
@@ -324,7 +326,7 @@ app.post('/api/save-csv-file', (req, res) => {
  */
 app.post('/api/apply-offset', (req, res) => {
     try {
-        const { file, offset, timeScale } = req.body;
+        const { file, offset, timeScale, timeOffset } = req.body;
         
         if (!file || !offset) {
             return res.status(400).json({ 
@@ -345,6 +347,16 @@ app.post('/api/apply-offset', (req, res) => {
                 error: 'Time scale must be a positive number'
             });
         }
+
+        // 验证时间偏移参数
+        const tOffset = timeOffset !== undefined ? parseFloat(timeOffset) : 0.0;
+        if (isNaN(tOffset)) {
+            return res.status(400).json({ 
+                error: 'Time offset must be a number'
+            });
+        }
+        
+        console.log(`[apply-offset] timeOffset: ${tOffset}, timeScale: ${scale}`);
         
         // 解析相对路径 - 相对于项目根目录
         const absolutePath = path.resolve(__dirname, file);
@@ -418,6 +430,20 @@ app.post('/api/apply-offset', (req, res) => {
             updatedFrames = data.frames.map(frame => JSON.parse(JSON.stringify(frame)));
         }
         
+        // 应用时间偏移到所有帧（在时间缩放之后）
+        // 总是应用时间偏移，即使值为 0（这样确保逻辑一致）
+        console.log(`[apply-offset] Applying time offset ${tOffset} to ${updatedFrames.length} frames`);
+        if (updatedFrames.length > 0) {
+            const firstFrameTimeBefore = updatedFrames[0]?.frame_time;
+            updatedFrames = updatedFrames.map(frame => {
+                const updatedFrame = JSON.parse(JSON.stringify(frame));
+                updatedFrame.frame_time = (updatedFrame.frame_time || 0) + tOffset;
+                return updatedFrame;
+            });
+            const firstFrameTimeAfter = updatedFrames[0]?.frame_time;
+            console.log(`[apply-offset] First frame time: ${firstFrameTimeBefore} -> ${firstFrameTimeAfter}`);
+        }
+        
         // 应用空间偏移量到所有帧
         updatedFrames = updatedFrames.map(frame => {
             // Ensure pos_world exists
@@ -441,10 +467,15 @@ app.post('/api/apply-offset', (req, res) => {
         const dataToSave = { frames: updatedFrames };
         fs.writeFileSync(absolutePath, JSON.stringify(dataToSave, null, 2), 'utf8');
         
+        let message = `Offset and time scale (${scale.toFixed(2)}x) applied successfully`;
+        if (tOffset !== 0) {
+            message += ` with time offset ${tOffset >= 0 ? '+' : ''}${tOffset.toFixed(4)}s`;
+        }
+        
         res.json({
             success: true,
             count: updatedFrames.length,
-            message: `Offset and time scale (${scale.toFixed(2)}x) applied successfully`
+            message: message
         });
         
     } catch (error) {

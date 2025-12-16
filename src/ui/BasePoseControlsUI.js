@@ -617,6 +617,56 @@ export class BasePoseControlsUI {
         this.sliderUpdateTimer = null;
         this.isDragging = false;
 
+        // 1. Frame file name - FIRST ROW
+        const frameFileGroup = document.createElement('div');
+        frameFileGroup.className = 'base-pose-frame-group';
+        frameFileGroup.style.cssText = 'margin-bottom: 8px;';
+        
+        const frameFileNameLabel = document.createElement('label');
+        frameFileNameLabel.className = 'base-pose-frame-label';
+        frameFileNameLabel.textContent = window.i18n?.t('frameFileName') || 'Frame File Name';
+        
+        const frameFileNameInput = document.createElement('input');
+        frameFileNameInput.type = 'text';
+        frameFileNameInput.className = 'base-pose-frame-input';
+        frameFileNameInput.value = this.frameFileName;
+        frameFileNameInput.placeholder = 'e.g., frame_go1_description.json';
+        frameFileNameInput.id = 'frame-file-name-input';
+        
+        frameFileNameInput.addEventListener('change', () => {
+            this.frameFileName = frameFileNameInput.value.trim();
+        });
+        
+        frameFileGroup.appendChild(frameFileNameLabel);
+        frameFileGroup.appendChild(frameFileNameInput);
+        container.appendChild(frameFileGroup);
+
+        // Save and Load buttons - SECOND ROW
+        const buttonRow = document.createElement('div');
+        buttonRow.style.cssText = 'display: flex; gap: 8px; margin-bottom: 12px;';
+        
+        const saveFrameBtn = document.createElement('button');
+        saveFrameBtn.id = 'save-frame-btn';
+        saveFrameBtn.className = 'save-frame-btn';
+        saveFrameBtn.textContent = 'Save';
+        saveFrameBtn.style.cssText = 'width: auto !important; padding: 6px 12px !important; margin: 0 !important; flex: 1; font-size: 12px; white-space: nowrap;';
+        saveFrameBtn.addEventListener('click', async () => {
+            await this.saveFrame(model);
+        });
+        
+        const loadFramesBtn = document.createElement('button');
+        loadFramesBtn.id = 'load-frames-btn';
+        loadFramesBtn.className = 'load-frames-btn';
+        loadFramesBtn.textContent = 'Load';
+        loadFramesBtn.style.cssText = 'width: auto !important; padding: 6px 12px !important; margin: 0 !important; flex: 1; font-size: 12px; white-space: nowrap;';
+        loadFramesBtn.addEventListener('click', async () => {
+            await this.loadFrameFile(model);
+        });
+        
+        buttonRow.appendChild(saveFrameBtn);
+        buttonRow.appendChild(loadFramesBtn);
+        container.appendChild(buttonRow);
+
         // Create controls for orientation (roll, pitch, yaw)
         const orientationGroup = document.createElement('div');
         orientationGroup.className = 'base-pose-group';
@@ -649,84 +699,105 @@ export class BasePoseControlsUI {
 
         container.appendChild(positionGroup);
 
-        // Add frame file name input
-        const frameFileNameGroup = document.createElement('div');
-        frameFileNameGroup.className = 'base-pose-frame-group';
-        
-        const frameFileNameLabel = document.createElement('label');
-        frameFileNameLabel.className = 'base-pose-frame-label';
-        frameFileNameLabel.textContent = window.i18n?.t('frameFileName') || 'Frame File Name';
-        
-        const frameFileNameInput = document.createElement('input');
-        frameFileNameInput.type = 'text';
-        frameFileNameInput.className = 'base-pose-frame-input';
-        frameFileNameInput.value = this.frameFileName;
-        frameFileNameInput.placeholder = 'e.g., frame_go1_description.json';
-        frameFileNameInput.id = 'frame-file-name-input';
-        
-        frameFileNameInput.addEventListener('change', () => {
-            this.frameFileName = frameFileNameInput.value.trim();
+        // 4. Reset base pose button
+        const resetBtn = document.createElement('button');
+        resetBtn.id = 'reset-base-pose-btn';
+        resetBtn.className = 'reset-base-pose-btn';
+        resetBtn.textContent = window.i18n?.t('resetBasePose') || 'Reset Base Pose';
+        resetBtn.addEventListener('click', () => {
+            this.resetBasePose(model);
         });
-        
-        frameFileNameGroup.appendChild(frameFileNameLabel);
-        frameFileNameGroup.appendChild(frameFileNameInput);
-        container.appendChild(frameFileNameGroup);
+        container.appendChild(resetBtn);
 
-        // Add world offset controls (simple input boxes)
+        // 5. World offset: x, y, z, timescale, apply offset (all in one row, compact)
         const worldOffsetGroup = document.createElement('div');
-        worldOffsetGroup.className = 'base-pose-group';
+        worldOffsetGroup.className = 'base-pose-frame-group';
+        worldOffsetGroup.style.cssText = 'display: flex; gap: 6px; align-items: center; flex-wrap: wrap;';
         
-        const worldOffsetTitle = document.createElement('div');
-        worldOffsetTitle.className = 'base-pose-group-title';
-        worldOffsetTitle.textContent = window.i18n?.t('worldOffset') || 'World Offset (All Frames)';
-        worldOffsetGroup.appendChild(worldOffsetTitle);
-
-        // Create input container for offset inputs
-        const offsetInputContainer = document.createElement('div');
-        offsetInputContainer.style.cssText = 'display: flex; gap: 8px; align-items: center;';
-        
-        ['x', 'y', 'z'].forEach(axis => {
-            const inputGroup = document.createElement('div');
-            inputGroup.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
-            
-            const label = document.createElement('label');
-            label.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500;';
-            label.textContent = axis.toUpperCase();
-            
-            const input = document.createElement('input');
-            input.type = 'number';
-            input.className = 'base-pose-frame-input';
-            input.id = `offset-${axis}-input`;
-            input.value = (this.worldOffset[axis] || 0).toFixed(4);
-            input.step = '0.0001';
-            input.style.cssText = 'text-align: center; width: 65px; min-width: 65px; max-width: 65px; padding: 6px 4px;';
-            input.placeholder = '0.0000';
-            
-            input.addEventListener('change', () => {
-                const value = parseFloat(input.value);
-                if (!isNaN(value)) {
-                    this.worldOffset[axis] = value;
-                    input.value = value.toFixed(4);
-                } else {
-                    input.value = (this.worldOffset[axis] || 0).toFixed(4);
-                }
-            });
-            
-            inputGroup.appendChild(label);
-            inputGroup.appendChild(input);
-            offsetInputContainer.appendChild(inputGroup);
+        // X offset
+        const xOffsetGroup = document.createElement('div');
+        xOffsetGroup.style.cssText = 'display: flex; align-items: center; gap: 4px;';
+        const xLabel = document.createElement('label');
+        xLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500; min-width: 20px;';
+        xLabel.textContent = 'X:';
+        const xInput = document.createElement('input');
+        xInput.type = 'number';
+        xInput.className = 'base-pose-frame-input';
+        xInput.id = 'offset-x-input';
+        xInput.value = (this.worldOffset.x || 0).toFixed(4);
+        xInput.step = '0.0001';
+        xInput.style.cssText = 'width: 70px; padding: 4px 6px; text-align: center;';
+        xInput.placeholder = '0.0000';
+        xInput.addEventListener('change', () => {
+            const value = parseFloat(xInput.value);
+            if (!isNaN(value)) {
+                this.worldOffset.x = value;
+                xInput.value = value.toFixed(4);
+            } else {
+                xInput.value = (this.worldOffset.x || 0).toFixed(4);
+            }
         });
-
-        worldOffsetGroup.appendChild(offsetInputContainer);
-
-        // Add time scale input
-        const timeScaleContainer = document.createElement('div');
-        timeScaleContainer.style.cssText = 'display: flex; gap: 8px; align-items: center; margin-top: 12px;';
+        xOffsetGroup.appendChild(xLabel);
+        xOffsetGroup.appendChild(xInput);
         
+        // Y offset
+        const yOffsetGroup = document.createElement('div');
+        yOffsetGroup.style.cssText = 'display: flex; align-items: center; gap: 4px;';
+        const yLabel = document.createElement('label');
+        yLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500; min-width: 20px;';
+        yLabel.textContent = 'Y:';
+        const yInput = document.createElement('input');
+        yInput.type = 'number';
+        yInput.className = 'base-pose-frame-input';
+        yInput.id = 'offset-y-input';
+        yInput.value = (this.worldOffset.y || 0).toFixed(4);
+        yInput.step = '0.0001';
+        yInput.style.cssText = 'width: 70px; padding: 4px 6px; text-align: center;';
+        yInput.placeholder = '0.0000';
+        yInput.addEventListener('change', () => {
+            const value = parseFloat(yInput.value);
+            if (!isNaN(value)) {
+                this.worldOffset.y = value;
+                yInput.value = value.toFixed(4);
+            } else {
+                yInput.value = (this.worldOffset.y || 0).toFixed(4);
+            }
+        });
+        yOffsetGroup.appendChild(yLabel);
+        yOffsetGroup.appendChild(yInput);
+        
+        // Z offset
+        const zOffsetGroup = document.createElement('div');
+        zOffsetGroup.style.cssText = 'display: flex; align-items: center; gap: 4px;';
+        const zLabel = document.createElement('label');
+        zLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500; min-width: 20px;';
+        zLabel.textContent = 'Z:';
+        const zInput = document.createElement('input');
+        zInput.type = 'number';
+        zInput.className = 'base-pose-frame-input';
+        zInput.id = 'offset-z-input';
+        zInput.value = (this.worldOffset.z || 0).toFixed(4);
+        zInput.step = '0.0001';
+        zInput.style.cssText = 'width: 70px; padding: 4px 6px; text-align: center;';
+        zInput.placeholder = '0.0000';
+        zInput.addEventListener('change', () => {
+            const value = parseFloat(zInput.value);
+            if (!isNaN(value)) {
+                this.worldOffset.z = value;
+                zInput.value = value.toFixed(4);
+            } else {
+                zInput.value = (this.worldOffset.z || 0).toFixed(4);
+            }
+        });
+        zOffsetGroup.appendChild(zLabel);
+        zOffsetGroup.appendChild(zInput);
+        
+        // Time scale
+        const timeScaleGroup = document.createElement('div');
+        timeScaleGroup.style.cssText = 'display: flex; align-items: center; gap: 4px;';
         const timeScaleLabel = document.createElement('label');
-        timeScaleLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500; min-width: 80px;';
-        timeScaleLabel.textContent = window.i18n?.t('timeScale') || 'Time Scale';
-        
+        timeScaleLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500; min-width: 50px;';
+        timeScaleLabel.textContent = window.i18n?.t('timeScale') || 'Scale:';
         const timeScaleInput = document.createElement('input');
         timeScaleInput.type = 'number';
         timeScaleInput.className = 'base-pose-frame-input';
@@ -735,29 +806,48 @@ export class BasePoseControlsUI {
         timeScaleInput.step = '0.01';
         timeScaleInput.min = '0.01';
         timeScaleInput.max = '10.0';
-        timeScaleInput.style.cssText = 'text-align: center; flex: 1; padding: 6px 4px;';
+        timeScaleInput.style.cssText = 'width: 60px; padding: 4px 6px; text-align: center;';
         timeScaleInput.placeholder = '1.0';
+        timeScaleGroup.appendChild(timeScaleLabel);
+        timeScaleGroup.appendChild(timeScaleInput);
         
-        const timeScaleHint = document.createElement('span');
-        timeScaleHint.style.cssText = 'font-size: 10px; color: var(--text-tertiary); margin-left: 4px;';
-        timeScaleHint.textContent = '(0.5 = half speed)';
+        // Time offset
+        const timeOffsetGroup = document.createElement('div');
+        timeOffsetGroup.style.cssText = 'display: flex; align-items: center; gap: 4px;';
+        const timeOffsetLabel = document.createElement('label');
+        timeOffsetLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500; min-width: 50px;';
+        timeOffsetLabel.textContent = window.i18n?.t('timeOffset') || 'T-Offset:';
+        const timeOffsetInput = document.createElement('input');
+        timeOffsetInput.type = 'number';
+        timeOffsetInput.className = 'base-pose-frame-input';
+        timeOffsetInput.id = 'time-offset-input';
+        timeOffsetInput.value = '0.0';
+        timeOffsetInput.step = '0.0001';
+        timeOffsetInput.style.cssText = 'width: 70px; padding: 4px 6px; text-align: center;';
+        timeOffsetInput.placeholder = '0.0000';
+        const timeOffsetUnit = document.createElement('span');
+        timeOffsetUnit.style.cssText = 'font-size: 11px; color: var(--text-secondary);';
+        timeOffsetUnit.textContent = 's';
+        timeOffsetGroup.appendChild(timeOffsetLabel);
+        timeOffsetGroup.appendChild(timeOffsetInput);
+        timeOffsetGroup.appendChild(timeOffsetUnit);
         
-        timeScaleContainer.appendChild(timeScaleLabel);
-        timeScaleContainer.appendChild(timeScaleInput);
-        timeScaleContainer.appendChild(timeScaleHint);
-        worldOffsetGroup.appendChild(timeScaleContainer);
-
-        // Add Apply Offset button
+        // Apply Offset button
         const applyOffsetBtn = document.createElement('button');
         applyOffsetBtn.id = 'apply-offset-btn';
         applyOffsetBtn.className = 'load-frame-btn';
-        applyOffsetBtn.textContent = window.i18n?.t('applyOffset') || 'Apply Offset';
-        applyOffsetBtn.style.cssText = 'margin-top: 12px;';
+        applyOffsetBtn.textContent = window.i18n?.t('applyOffset') || 'Apply';
+        applyOffsetBtn.style.cssText = 'padding: 6px 12px; margin: 0; flex-shrink: 0;';
         applyOffsetBtn.addEventListener('click', async () => {
             await this.applyOffsetToFile(model);
         });
+        
+        worldOffsetGroup.appendChild(xOffsetGroup);
+        worldOffsetGroup.appendChild(yOffsetGroup);
+        worldOffsetGroup.appendChild(zOffsetGroup);
+        worldOffsetGroup.appendChild(timeScaleGroup);
+        worldOffsetGroup.appendChild(timeOffsetGroup);
         worldOffsetGroup.appendChild(applyOffsetBtn);
-
         container.appendChild(worldOffsetGroup);
 
         // Add frame time input
@@ -906,37 +996,7 @@ export class BasePoseControlsUI {
         frameSliderGroup.appendChild(frameSliderContainer);
         container.appendChild(frameSliderGroup);
 
-        // Add save frame button
-        const saveFrameBtn = document.createElement('button');
-        saveFrameBtn.id = 'save-frame-btn';
-        saveFrameBtn.className = 'save-frame-btn';
-        saveFrameBtn.textContent = window.i18n?.t('saveFrame') || 'Save Frame';
-        saveFrameBtn.addEventListener('click', async () => {
-            await this.saveFrame(model);
-        });
-        container.appendChild(saveFrameBtn);
-
-        // Add reset button
-        const resetBtn = document.createElement('button');
-        resetBtn.id = 'reset-base-pose-btn';
-        resetBtn.className = 'reset-base-pose-btn';
-        resetBtn.textContent = window.i18n?.t('resetBasePose') || 'Reset Base Pose';
-        resetBtn.addEventListener('click', () => {
-            this.resetBasePose(model);
-        });
-        container.appendChild(resetBtn);
-
-        // Add load frames button
-        const loadFramesBtn = document.createElement('button');
-        loadFramesBtn.id = 'load-frames-btn';
-        loadFramesBtn.className = 'load-frames-btn';
-        loadFramesBtn.textContent = window.i18n?.t('loadFrames') || 'Load Frames';
-        loadFramesBtn.addEventListener('click', async () => {
-            await this.loadFrameFile(model);
-        });
-        container.appendChild(loadFramesBtn);
-
-        // Add interpolate frames section
+        // 8. LaFAN section - compact layout
         const interpolateSection = document.createElement('div');
         interpolateSection.className = 'interpolate-section';
         interpolateSection.style.marginTop = '16px';
@@ -949,22 +1009,19 @@ export class BasePoseControlsUI {
         interpolateTitle.style.fontSize = '12px';
         interpolateTitle.style.fontWeight = '600';
         interpolateTitle.style.color = 'var(--text-secondary)';
-        interpolateTitle.style.marginBottom = '12px';
+        interpolateTitle.style.marginBottom = '8px';
         interpolateTitle.textContent = window.i18n?.t('interpolateFrames') || 'Interpolate to LaFAN Format';
 
-        // Frequency input group
+        // Compact input row: Frequency, First Extend, Last Extend, Z Offset
+        const compactInputRow = document.createElement('div');
+        compactInputRow.style.cssText = 'display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px;';
+
+        // Frequency
         const freqGroup = document.createElement('div');
-        freqGroup.style.display = 'flex';
-        freqGroup.style.alignItems = 'center';
-        freqGroup.style.gap = '8px';
-        freqGroup.style.marginBottom = '12px';
-
+        freqGroup.style.cssText = 'display: flex; align-items: center; gap: 4px;';
         const freqLabel = document.createElement('label');
-        freqLabel.style.fontSize = '11px';
-        freqLabel.style.color = 'var(--text-secondary)';
-        freqLabel.style.minWidth = '60px';
-        freqLabel.textContent = (window.i18n?.t('frequency') || 'Frequency') + ':';
-
+        freqLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500; min-width: 50px;';
+        freqLabel.textContent = (window.i18n?.t('frequency') || 'Freq') + ':';
         const freqInput = document.createElement('input');
         freqInput.type = 'number';
         freqInput.id = 'interpolate-freq-input';
@@ -972,135 +1029,84 @@ export class BasePoseControlsUI {
         freqInput.min = '1';
         freqInput.max = '120';
         freqInput.step = '1';
-        freqInput.style.flex = '1';
-        freqInput.style.padding = '6px 10px';
-        freqInput.style.background = 'rgba(255, 255, 255, 0.04)';
-        freqInput.style.border = '1px solid rgba(255, 255, 255, 0.15)';
-        freqInput.style.borderRadius = '6px';
-        freqInput.style.color = 'var(--text-primary)';
-        freqInput.style.fontSize = '12px';
-
+        freqInput.style.cssText = 'width: 50px; padding: 4px 6px; text-align: center; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; color: var(--text-primary); font-size: 12px;';
         const freqUnit = document.createElement('span');
-        freqUnit.style.fontSize = '11px';
-        freqUnit.style.color = 'var(--text-secondary)';
+        freqUnit.style.cssText = 'font-size: 11px; color: var(--text-secondary);';
         freqUnit.textContent = 'Hz';
-
         freqGroup.appendChild(freqLabel);
         freqGroup.appendChild(freqInput);
         freqGroup.appendChild(freqUnit);
 
-        // First frame extension input group
+        // First frame extend
         const firstFrameExtGroup = document.createElement('div');
-        firstFrameExtGroup.style.display = 'flex';
-        firstFrameExtGroup.style.alignItems = 'center';
-        firstFrameExtGroup.style.gap = '8px';
-        firstFrameExtGroup.style.marginBottom = '12px';
-
+        firstFrameExtGroup.style.cssText = 'display: flex; align-items: center; gap: 4px;';
         const firstFrameExtLabel = document.createElement('label');
-        firstFrameExtLabel.style.fontSize = '11px';
-        firstFrameExtLabel.style.color = 'var(--text-secondary)';
-        firstFrameExtLabel.style.minWidth = '60px';
-        firstFrameExtLabel.textContent = (window.i18n?.t('firstFrameExtend') || 'First Frame Extend') + ':';
-
+        firstFrameExtLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500; min-width: 50px;';
+        firstFrameExtLabel.textContent = (window.i18n?.t('firstFrameExtend') || 'First') + ':';
         const firstFrameExtInput = document.createElement('input');
         firstFrameExtInput.type = 'number';
         firstFrameExtInput.id = 'first-frame-extend-input';
         firstFrameExtInput.value = '0';
         firstFrameExtInput.min = '0';
         firstFrameExtInput.step = '0.01';
-        firstFrameExtInput.style.flex = '1';
-        firstFrameExtInput.style.padding = '6px 10px';
-        firstFrameExtInput.style.background = 'rgba(255, 255, 255, 0.04)';
-        firstFrameExtInput.style.border = '1px solid rgba(255, 255, 255, 0.15)';
-        firstFrameExtInput.style.borderRadius = '6px';
-        firstFrameExtInput.style.color = 'var(--text-primary)';
-        firstFrameExtInput.style.fontSize = '12px';
-
+        firstFrameExtInput.style.cssText = 'width: 50px; padding: 4px 6px; text-align: center; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; color: var(--text-primary); font-size: 12px;';
         const firstFrameExtUnit = document.createElement('span');
-        firstFrameExtUnit.style.fontSize = '11px';
-        firstFrameExtUnit.style.color = 'var(--text-secondary)';
+        firstFrameExtUnit.style.cssText = 'font-size: 11px; color: var(--text-secondary);';
         firstFrameExtUnit.textContent = 's';
-
         firstFrameExtGroup.appendChild(firstFrameExtLabel);
         firstFrameExtGroup.appendChild(firstFrameExtInput);
         firstFrameExtGroup.appendChild(firstFrameExtUnit);
 
-        // Last frame extension input group
+        // Last frame extend
         const lastFrameExtGroup = document.createElement('div');
-        lastFrameExtGroup.style.display = 'flex';
-        lastFrameExtGroup.style.alignItems = 'center';
-        lastFrameExtGroup.style.gap = '8px';
-        lastFrameExtGroup.style.marginBottom = '12px';
-
+        lastFrameExtGroup.style.cssText = 'display: flex; align-items: center; gap: 4px;';
         const lastFrameExtLabel = document.createElement('label');
-        lastFrameExtLabel.style.fontSize = '11px';
-        lastFrameExtLabel.style.color = 'var(--text-secondary)';
-        lastFrameExtLabel.style.minWidth = '60px';
-        lastFrameExtLabel.textContent = (window.i18n?.t('lastFrameExtend') || 'Last Frame Extend') + ':';
-
+        lastFrameExtLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500; min-width: 50px;';
+        lastFrameExtLabel.textContent = (window.i18n?.t('lastFrameExtend') || 'Last') + ':';
         const lastFrameExtInput = document.createElement('input');
         lastFrameExtInput.type = 'number';
         lastFrameExtInput.id = 'last-frame-extend-input';
         lastFrameExtInput.value = '0';
         lastFrameExtInput.min = '0';
         lastFrameExtInput.step = '0.01';
-        lastFrameExtInput.style.flex = '1';
-        lastFrameExtInput.style.padding = '6px 10px';
-        lastFrameExtInput.style.background = 'rgba(255, 255, 255, 0.04)';
-        lastFrameExtInput.style.border = '1px solid rgba(255, 255, 255, 0.15)';
-        lastFrameExtInput.style.borderRadius = '6px';
-        lastFrameExtInput.style.color = 'var(--text-primary)';
-        lastFrameExtInput.style.fontSize = '12px';
-
+        lastFrameExtInput.style.cssText = 'width: 50px; padding: 4px 6px; text-align: center; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; color: var(--text-primary); font-size: 12px;';
         const lastFrameExtUnit = document.createElement('span');
-        lastFrameExtUnit.style.fontSize = '11px';
-        lastFrameExtUnit.style.color = 'var(--text-secondary)';
+        lastFrameExtUnit.style.cssText = 'font-size: 11px; color: var(--text-secondary);';
         lastFrameExtUnit.textContent = 's';
-
         lastFrameExtGroup.appendChild(lastFrameExtLabel);
         lastFrameExtGroup.appendChild(lastFrameExtInput);
         lastFrameExtGroup.appendChild(lastFrameExtUnit);
 
-        // Z-axis offset input group
-        const zOffsetGroup = document.createElement('div');
-        zOffsetGroup.style.display = 'flex';
-        zOffsetGroup.style.alignItems = 'center';
-        zOffsetGroup.style.gap = '8px';
-        zOffsetGroup.style.marginBottom = '12px';
-
-        const zOffsetLabel = document.createElement('label');
-        zOffsetLabel.style.fontSize = '11px';
-        zOffsetLabel.style.color = 'var(--text-secondary)';
-        zOffsetLabel.style.minWidth = '60px';
-        zOffsetLabel.textContent = (window.i18n?.t('zAxisOffset') || 'Z-Axis Offset') + ':';
-
+        // Z-axis offset
+        const lafanZOffsetGroup = document.createElement('div');
+        lafanZOffsetGroup.style.cssText = 'display: flex; align-items: center; gap: 4px;';
+        const lafanZOffsetLabel = document.createElement('label');
+        lafanZOffsetLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500; min-width: 50px;';
+        lafanZOffsetLabel.textContent = (window.i18n?.t('zAxisOffset') || 'Z-Offset') + ':';
         const zOffsetInput = document.createElement('input');
         zOffsetInput.type = 'number';
         zOffsetInput.id = 'z-axis-offset-input';
         zOffsetInput.value = '0';
         zOffsetInput.step = '0.0001';
-        zOffsetInput.style.flex = '1';
-        zOffsetInput.style.padding = '6px 10px';
-        zOffsetInput.style.background = 'rgba(255, 255, 255, 0.04)';
-        zOffsetInput.style.border = '1px solid rgba(255, 255, 255, 0.15)';
-        zOffsetInput.style.borderRadius = '6px';
-        zOffsetInput.style.color = 'var(--text-primary)';
-        zOffsetInput.style.fontSize = '12px';
+        zOffsetInput.style.cssText = 'width: 60px; padding: 4px 6px; text-align: center; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; color: var(--text-primary); font-size: 12px;';
+        const lafanZOffsetUnit = document.createElement('span');
+        lafanZOffsetUnit.style.cssText = 'font-size: 11px; color: var(--text-secondary);';
+        lafanZOffsetUnit.textContent = 'm';
+        lafanZOffsetGroup.appendChild(lafanZOffsetLabel);
+        lafanZOffsetGroup.appendChild(zOffsetInput);
+        lafanZOffsetGroup.appendChild(lafanZOffsetUnit);
 
-        const zOffsetUnit = document.createElement('span');
-        zOffsetUnit.style.fontSize = '11px';
-        zOffsetUnit.style.color = 'var(--text-secondary)';
-        zOffsetUnit.textContent = 'm';
-
-        zOffsetGroup.appendChild(zOffsetLabel);
-        zOffsetGroup.appendChild(zOffsetInput);
-        zOffsetGroup.appendChild(zOffsetUnit);
+        compactInputRow.appendChild(freqGroup);
+        compactInputRow.appendChild(firstFrameExtGroup);
+        compactInputRow.appendChild(lastFrameExtGroup);
+        compactInputRow.appendChild(lafanZOffsetGroup);
 
         // Interpolate button
         const interpolateBtn = document.createElement('button');
         interpolateBtn.id = 'interpolate-frames-btn';
         interpolateBtn.className = 'interpolate-frames-btn';
         interpolateBtn.textContent = window.i18n?.t('interpolateAndSave') || 'Interpolate & Save';
+        interpolateBtn.style.cssText = 'margin-top: 0;';
         interpolateBtn.addEventListener('click', async () => {
             const firstFrameExtend = parseFloat(firstFrameExtInput.value) || 0;
             const lastFrameExtend = parseFloat(lastFrameExtInput.value) || 0;
@@ -1109,10 +1115,7 @@ export class BasePoseControlsUI {
         });
 
         interpolateSection.appendChild(interpolateTitle);
-        interpolateSection.appendChild(freqGroup);
-        interpolateSection.appendChild(firstFrameExtGroup);
-        interpolateSection.appendChild(lastFrameExtGroup);
-        interpolateSection.appendChild(zOffsetGroup);
+        interpolateSection.appendChild(compactInputRow);
         interpolateSection.appendChild(interpolateBtn);
         container.appendChild(interpolateSection);
 
@@ -1768,10 +1771,25 @@ export class BasePoseControlsUI {
             return;
         }
 
+        // Get time offset value
+        const timeOffsetInput = document.getElementById('time-offset-input');
+        const timeOffset = timeOffsetInput ? parseFloat(timeOffsetInput.value) : 0.0;
+        
+        if (isNaN(timeOffset)) {
+            this.showNotification(window.i18n?.t('invalidTimeOffset') || 'Invalid time offset value', 'error');
+            return;
+        }
+
         // Show confirmation dialog
+        let confirmMessage = `This will modify all frames in the file with offset (${this.worldOffset.x.toFixed(4)}, ${this.worldOffset.y.toFixed(4)}, ${this.worldOffset.z.toFixed(4)}), time scale ${timeScale.toFixed(2)}x`;
+        if (timeOffset !== 0) {
+            confirmMessage += `, and time offset ${timeOffset >= 0 ? '+' : ''}${timeOffset.toFixed(4)}s`;
+        }
+        confirmMessage += '.';
+        
         const confirmed = await this.showConfirmModal(
             window.i18n?.t('confirmApplyOffset') || 'Apply Offset & Time Scale',
-            window.i18n?.t('confirmApplyOffsetMessage') || `This will modify all frames in the file with offset (${this.worldOffset.x.toFixed(4)}, ${this.worldOffset.y.toFixed(4)}, ${this.worldOffset.z.toFixed(4)}) and time scale ${timeScale.toFixed(2)}x.`,
+            window.i18n?.t('confirmApplyOffsetMessage') || confirmMessage,
             window.i18n?.t('backupWarning') || '⚠️ Please backup your file before proceeding! This operation cannot be undone.'
         );
         
@@ -1802,7 +1820,8 @@ export class BasePoseControlsUI {
                         y: this.worldOffset.y,
                         z: this.worldOffset.z
                     },
-                    timeScale: timeScale
+                    timeScale: timeScale,
+                    timeOffset: timeOffset
                 })
             });
 
