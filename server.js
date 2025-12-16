@@ -328,16 +328,30 @@ app.post('/api/apply-offset', (req, res) => {
     try {
         const { file, offset, timeScale, timeOffset } = req.body;
         
-        if (!file || !offset) {
+        if (!file) {
             return res.status(400).json({ 
-                error: 'File path and offset are required'
+                error: 'File path is required'
             });
         }
 
-        if (typeof offset.x !== 'number' || typeof offset.y !== 'number' || typeof offset.z !== 'number') {
-            return res.status(400).json({ 
-                error: 'Offset must have numeric x, y, z values'
-            });
+        // 验证offset对象（允许为null或undefined，表示不应用空间偏移）
+        if (offset !== null && offset !== undefined) {
+            // 如果提供了offset，验证其值（允许x, y, z为null/undefined，表示不应用该轴的偏移）
+            if (offset.x !== null && offset.x !== undefined && typeof offset.x !== 'number') {
+                return res.status(400).json({ 
+                    error: 'Offset x must be a number or null/undefined'
+                });
+            }
+            if (offset.y !== null && offset.y !== undefined && typeof offset.y !== 'number') {
+                return res.status(400).json({ 
+                    error: 'Offset y must be a number or null/undefined'
+                });
+            }
+            if (offset.z !== null && offset.z !== undefined && typeof offset.z !== 'number') {
+                return res.status(400).json({ 
+                    error: 'Offset z must be a number or null/undefined'
+                });
+            }
         }
 
         // 验证时间缩放参数
@@ -348,15 +362,18 @@ app.post('/api/apply-offset', (req, res) => {
             });
         }
 
-        // 验证时间偏移参数
-        const tOffset = timeOffset !== undefined ? parseFloat(timeOffset) : 0.0;
-        if (isNaN(tOffset)) {
-            return res.status(400).json({ 
-                error: 'Time offset must be a number'
-            });
+        // 验证时间偏移参数（允许为undefined，表示不应用时间偏移）
+        let tOffset = undefined;
+        if (timeOffset !== undefined && timeOffset !== null) {
+            tOffset = parseFloat(timeOffset);
+            if (isNaN(tOffset)) {
+                return res.status(400).json({ 
+                    error: 'Time offset must be a number'
+                });
+            }
         }
         
-        console.log(`[apply-offset] timeOffset: ${tOffset}, timeScale: ${scale}`);
+        console.log(`[apply-offset] timeOffset: ${tOffset !== undefined ? tOffset : 'none'}, timeScale: ${scale}`);
         
         // 解析相对路径 - 相对于项目根目录
         const absolutePath = path.resolve(__dirname, file);
@@ -430,46 +447,113 @@ app.post('/api/apply-offset', (req, res) => {
             updatedFrames = data.frames.map(frame => JSON.parse(JSON.stringify(frame)));
         }
         
-        // 应用时间偏移到所有帧（在时间缩放之后）
-        // 总是应用时间偏移，即使值为 0（这样确保逻辑一致）
-        console.log(`[apply-offset] Applying time offset ${tOffset} to ${updatedFrames.length} frames`);
+        // 计算偏移量：目标值 - 第一帧当前值
+        // x, y, z 和 timeOffset 都是目标值，需要计算与第一帧的差值作为偏移
+        // 如果值为null/undefined，则不应用该轴的偏移
         if (updatedFrames.length > 0) {
-            const firstFrameTimeBefore = updatedFrames[0]?.frame_time;
-            updatedFrames = updatedFrames.map(frame => {
-                const updatedFrame = JSON.parse(JSON.stringify(frame));
-                updatedFrame.frame_time = (updatedFrame.frame_time || 0) + tOffset;
-                return updatedFrame;
-            });
-            const firstFrameTimeAfter = updatedFrames[0]?.frame_time;
-            console.log(`[apply-offset] First frame time: ${firstFrameTimeBefore} -> ${firstFrameTimeAfter}`);
-        }
-        
-        // 应用空间偏移量到所有帧
-        updatedFrames = updatedFrames.map(frame => {
-            // Ensure pos_world exists
-            if (!frame.pos_world) {
-                frame.pos_world = { x: 0, y: 0, z: 0 };
+            const firstFrame = updatedFrames[0];
+            
+            // 获取第一帧的当前值
+            const firstFrameTime = firstFrame.frame_time || 0;
+            const firstFramePos = firstFrame.pos_world || { x: 0, y: 0, z: 0 };
+            const firstFrameX = firstFramePos.x ?? 0;
+            const firstFrameY = firstFramePos.y ?? 0;
+            const firstFrameZ = firstFramePos.z ?? 0;
+            
+            // 计算偏移量 = 目标值 - 第一帧当前值（只有当目标值不为null/undefined时才计算）
+            let calculatedTimeOffset = undefined;
+            if (tOffset !== undefined && tOffset !== null) {
+                calculatedTimeOffset = tOffset - firstFrameTime;
             }
             
-            // Apply offset to position
-            const originalX = frame.pos_world.x ?? 0;
-            const originalY = frame.pos_world.y ?? 0;
-            const originalZ = frame.pos_world.z ?? 0;
+            let calculatedXOffset = undefined;
+            if (offset && offset.x !== null && offset.x !== undefined) {
+                calculatedXOffset = offset.x - firstFrameX;
+            }
             
-            frame.pos_world.x = originalX + offset.x;
-            frame.pos_world.y = originalY + offset.y;
-            frame.pos_world.z = originalZ + offset.z;
+            let calculatedYOffset = undefined;
+            if (offset && offset.y !== null && offset.y !== undefined) {
+                calculatedYOffset = offset.y - firstFrameY;
+            }
             
-            return frame;
-        });
+            let calculatedZOffset = undefined;
+            if (offset && offset.z !== null && offset.z !== undefined) {
+                calculatedZOffset = offset.z - firstFrameZ;
+            }
+            
+            console.log(`[apply-offset] Target values: time=${tOffset !== undefined ? tOffset : 'none'}, x=${offset && offset.x !== undefined ? offset.x : 'none'}, y=${offset && offset.y !== undefined ? offset.y : 'none'}, z=${offset && offset.z !== undefined ? offset.z : 'none'}`);
+            console.log(`[apply-offset] First frame values: time=${firstFrameTime}, x=${firstFrameX}, y=${firstFrameY}, z=${firstFrameZ}`);
+            console.log(`[apply-offset] Calculated offsets: time=${calculatedTimeOffset !== undefined ? calculatedTimeOffset : 'none'}, x=${calculatedXOffset !== undefined ? calculatedXOffset : 'none'}, y=${calculatedYOffset !== undefined ? calculatedYOffset : 'none'}, z=${calculatedZOffset !== undefined ? calculatedZOffset : 'none'}`);
+            
+            // 应用时间偏移到所有帧（只有当calculatedTimeOffset不为undefined时才应用）
+            if (calculatedTimeOffset !== undefined) {
+                const firstFrameTimeBefore = firstFrameTime;
+                updatedFrames = updatedFrames.map(frame => {
+                    const updatedFrame = JSON.parse(JSON.stringify(frame));
+                    updatedFrame.frame_time = (updatedFrame.frame_time || 0) + calculatedTimeOffset;
+                    return updatedFrame;
+                });
+                const firstFrameTimeAfter = updatedFrames[0]?.frame_time;
+                console.log(`[apply-offset] First frame time: ${firstFrameTimeBefore} -> ${firstFrameTimeAfter}`);
+            }
+            
+            // 应用空间偏移量到所有帧（只有当calculatedOffset不为undefined时才应用）
+            if (calculatedXOffset !== undefined || calculatedYOffset !== undefined || calculatedZOffset !== undefined) {
+                updatedFrames = updatedFrames.map(frame => {
+                    // Ensure pos_world exists
+                    if (!frame.pos_world) {
+                        frame.pos_world = { x: 0, y: 0, z: 0 };
+                    }
+                    
+                    // Apply calculated offset to position (only if offset is defined)
+                    const originalX = frame.pos_world.x ?? 0;
+                    const originalY = frame.pos_world.y ?? 0;
+                    const originalZ = frame.pos_world.z ?? 0;
+                    
+                    if (calculatedXOffset !== undefined) {
+                        frame.pos_world.x = originalX + calculatedXOffset;
+                    }
+                    if (calculatedYOffset !== undefined) {
+                        frame.pos_world.y = originalY + calculatedYOffset;
+                    }
+                    if (calculatedZOffset !== undefined) {
+                        frame.pos_world.z = originalZ + calculatedZOffset;
+                    }
+                    
+                    return frame;
+                });
+            }
+        }
         
         // 保存文件
         const dataToSave = { frames: updatedFrames };
         fs.writeFileSync(absolutePath, JSON.stringify(dataToSave, null, 2), 'utf8');
         
-        let message = `Offset and time scale (${scale.toFixed(2)}x) applied successfully`;
-        if (tOffset !== 0) {
-            message += ` with time offset ${tOffset >= 0 ? '+' : ''}${tOffset.toFixed(4)}s`;
+        let message = '';
+        const appliedParts = [];
+        
+        if (scale !== 1.0) {
+            appliedParts.push(`time scale ${scale.toFixed(2)}x`);
+        }
+        
+        if (offset) {
+            const offsetParts = [];
+            if (offset.x !== null && offset.x !== undefined) offsetParts.push(`x=${offset.x.toFixed(4)}`);
+            if (offset.y !== null && offset.y !== undefined) offsetParts.push(`y=${offset.y.toFixed(4)}`);
+            if (offset.z !== null && offset.z !== undefined) offsetParts.push(`z=${offset.z.toFixed(4)}`);
+            if (offsetParts.length > 0) {
+                appliedParts.push(`offset (${offsetParts.join(', ')})`);
+            }
+        }
+        
+        if (tOffset !== undefined && tOffset !== null) {
+            appliedParts.push(`time offset ${tOffset >= 0 ? '+' : ''}${tOffset.toFixed(4)}s`);
+        }
+        
+        if (appliedParts.length > 0) {
+            message = `${appliedParts.join(', ')} applied successfully`;
+        } else {
+            message = 'No changes applied (all offsets are empty)';
         }
         
         res.json({

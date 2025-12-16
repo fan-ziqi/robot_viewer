@@ -27,11 +27,11 @@ export class BasePoseControlsUI {
         // Frame file name (user input)
         this.frameFileName = '';
         
-        // World coordinate offset for all frames
+        // World coordinate offset for all frames (null means no offset)
         this.worldOffset = {
-            x: 0,
-            y: 0,
-            z: 0
+            x: null,
+            y: null,
+            z: null
         };
         
         // Store current model reference
@@ -724,7 +724,7 @@ export class BasePoseControlsUI {
         xInput.type = 'number';
         xInput.className = 'base-pose-frame-input';
         xInput.id = 'offset-x-input';
-        xInput.value = (this.worldOffset.x || 0).toFixed(4);
+        xInput.value = '';
         xInput.step = '0.0001';
         xInput.style.cssText = 'width: 70px; padding: 4px 6px; text-align: center;';
         xInput.placeholder = '0.0000';
@@ -734,7 +734,9 @@ export class BasePoseControlsUI {
                 this.worldOffset.x = value;
                 xInput.value = value.toFixed(4);
             } else {
-                xInput.value = (this.worldOffset.x || 0).toFixed(4);
+                // 如果为空，清除值
+                this.worldOffset.x = null;
+                xInput.value = '';
             }
         });
         xOffsetGroup.appendChild(xLabel);
@@ -750,7 +752,7 @@ export class BasePoseControlsUI {
         yInput.type = 'number';
         yInput.className = 'base-pose-frame-input';
         yInput.id = 'offset-y-input';
-        yInput.value = (this.worldOffset.y || 0).toFixed(4);
+        yInput.value = '';
         yInput.step = '0.0001';
         yInput.style.cssText = 'width: 70px; padding: 4px 6px; text-align: center;';
         yInput.placeholder = '0.0000';
@@ -760,7 +762,9 @@ export class BasePoseControlsUI {
                 this.worldOffset.y = value;
                 yInput.value = value.toFixed(4);
             } else {
-                yInput.value = (this.worldOffset.y || 0).toFixed(4);
+                // 如果为空，清除值
+                this.worldOffset.y = null;
+                yInput.value = '';
             }
         });
         yOffsetGroup.appendChild(yLabel);
@@ -776,7 +780,7 @@ export class BasePoseControlsUI {
         zInput.type = 'number';
         zInput.className = 'base-pose-frame-input';
         zInput.id = 'offset-z-input';
-        zInput.value = (this.worldOffset.z || 0).toFixed(4);
+        zInput.value = '';
         zInput.step = '0.0001';
         zInput.style.cssText = 'width: 70px; padding: 4px 6px; text-align: center;';
         zInput.placeholder = '0.0000';
@@ -786,7 +790,9 @@ export class BasePoseControlsUI {
                 this.worldOffset.z = value;
                 zInput.value = value.toFixed(4);
             } else {
-                zInput.value = (this.worldOffset.z || 0).toFixed(4);
+                // 如果为空，清除值
+                this.worldOffset.z = null;
+                zInput.value = '';
             }
         });
         zOffsetGroup.appendChild(zLabel);
@@ -821,7 +827,7 @@ export class BasePoseControlsUI {
         timeOffsetInput.type = 'number';
         timeOffsetInput.className = 'base-pose-frame-input';
         timeOffsetInput.id = 'time-offset-input';
-        timeOffsetInput.value = '0.0';
+        timeOffsetInput.value = '';
         timeOffsetInput.step = '0.0001';
         timeOffsetInput.style.cssText = 'width: 70px; padding: 4px 6px; text-align: center;';
         timeOffsetInput.placeholder = '0.0000';
@@ -1771,18 +1777,36 @@ export class BasePoseControlsUI {
             return;
         }
 
-        // Get time offset value
+        // Get time offset value - if empty, set to null (no offset)
         const timeOffsetInput = document.getElementById('time-offset-input');
-        const timeOffset = timeOffsetInput ? parseFloat(timeOffsetInput.value) : 0.0;
-        
-        if (isNaN(timeOffset)) {
-            this.showNotification(window.i18n?.t('invalidTimeOffset') || 'Invalid time offset value', 'error');
-            return;
+        let timeOffset = null;
+        if (timeOffsetInput && timeOffsetInput.value.trim() !== '') {
+            const parsed = parseFloat(timeOffsetInput.value);
+            if (!isNaN(parsed)) {
+                timeOffset = parsed;
+            }
         }
 
-        // Show confirmation dialog
-        let confirmMessage = `This will modify all frames in the file with offset (${this.worldOffset.x.toFixed(4)}, ${this.worldOffset.y.toFixed(4)}, ${this.worldOffset.z.toFixed(4)}), time scale ${timeScale.toFixed(2)}x`;
-        if (timeOffset !== 0) {
+        // Build confirmation message
+        const offsetParts = [];
+        if (this.worldOffset.x !== null && this.worldOffset.x !== undefined) {
+            offsetParts.push(`x=${this.worldOffset.x.toFixed(4)}`);
+        }
+        if (this.worldOffset.y !== null && this.worldOffset.y !== undefined) {
+            offsetParts.push(`y=${this.worldOffset.y.toFixed(4)}`);
+        }
+        if (this.worldOffset.z !== null && this.worldOffset.z !== undefined) {
+            offsetParts.push(`z=${this.worldOffset.z.toFixed(4)}`);
+        }
+        
+        let confirmMessage = `This will modify all frames in the file`;
+        if (offsetParts.length > 0) {
+            confirmMessage += ` with offset (${offsetParts.join(', ')})`;
+        }
+        if (timeScale !== 1.0) {
+            confirmMessage += `, time scale ${timeScale.toFixed(2)}x`;
+        }
+        if (timeOffset !== null) {
             confirmMessage += `, and time offset ${timeOffset >= 0 ? '+' : ''}${timeOffset.toFixed(4)}s`;
         }
         confirmMessage += '.';
@@ -1821,7 +1845,7 @@ export class BasePoseControlsUI {
                         z: this.worldOffset.z
                     },
                     timeScale: timeScale,
-                    timeOffset: timeOffset
+                    timeOffset: timeOffset !== null ? timeOffset : undefined
                 })
             });
 
