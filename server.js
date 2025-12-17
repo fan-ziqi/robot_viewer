@@ -92,14 +92,27 @@ app.get('/api/list-json-files', (req, res) => {
             });
         }
         
-        // 列出文件夹中的所有文件
-        const allFiles = fs.readdirSync(realPath);
+        // 递归列出文件夹中的所有 JSON 文件
+        const jsonFiles = [];
         
-        // 过滤 JSON 文件
-        const jsonFiles = allFiles.filter(file => {
-            // 只选择 .json 文件
-            return file.endsWith('.json');
-        });
+        function scanDirectory(dirPath, relativePath = '') {
+            const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+            
+            for (const entry of entries) {
+                const fullPath = path.join(dirPath, entry.name);
+                const relativeFilePath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+                
+                if (entry.isDirectory()) {
+                    // 递归扫描子目录
+                    scanDirectory(fullPath, relativeFilePath);
+                } else if (entry.isFile() && entry.name.endsWith('.json')) {
+                    // 添加 JSON 文件，保留相对路径
+                    jsonFiles.push(relativeFilePath);
+                }
+            }
+        }
+        
+        scanDirectory(realPath);
         
         // 自然排序
         const sortedFiles = naturalSort(jsonFiles);
@@ -326,7 +339,7 @@ app.post('/api/save-csv-file', (req, res) => {
  */
 app.post('/api/apply-offset', (req, res) => {
     try {
-        const { file, offset, timeScale, timeOffset } = req.body;
+        const { file, offset, timeScale, timeOffset, startFrameTime } = req.body;
         
         if (!file) {
             return res.status(400).json({ 
@@ -372,8 +385,19 @@ app.post('/api/apply-offset', (req, res) => {
                 });
             }
         }
+
+        // 验证起始帧时间参数（允许为undefined，表示从第一帧开始）
+        let startFrameTimeValue = undefined;
+        if (startFrameTime !== undefined && startFrameTime !== null) {
+            startFrameTimeValue = parseFloat(startFrameTime);
+            if (isNaN(startFrameTimeValue) || startFrameTimeValue < 0) {
+                return res.status(400).json({ 
+                    error: 'Start frame time must be a non-negative number'
+                });
+            }
+        }
         
-        console.log(`[apply-offset] timeOffset: ${tOffset !== undefined ? tOffset : 'none'}, timeScale: ${scale}`);
+        console.log(`[apply-offset] timeOffset: ${tOffset !== undefined ? tOffset : 'none'}, timeScale: ${scale}, startFrameTime: ${startFrameTimeValue !== undefined ? startFrameTimeValue : 'none'}`);
         
         // 解析相对路径 - 相对于项目根目录
         const absolutePath = path.resolve(__dirname, file);
@@ -415,20 +439,46 @@ app.post('/api/apply-offset', (req, res) => {
         // 先按 frame_time 排序
         data.frames.sort((a, b) => (a.frame_time || 0) - (b.frame_time || 0));
 
+        // 根据起始帧时间找到对应的帧索引
+        // 如果指定了startFrameTime，找到第一个frame_time >= startFrameTime的帧
+        // 如果没有指定，则从第一帧开始（索引0）
+        let actualStartFrame = 0;
+        if (startFrameTimeValue !== undefined) {
+            // 找到第一个frame_time >= startFrameTimeValue的帧
+            const foundIndex = data.frames.findIndex(frame => (frame.frame_time || 0) >= startFrameTimeValue);
+            if (foundIndex >= 0) {
+                actualStartFrame = foundIndex;
+            } else {
+                // 如果所有帧的frame_time都小于startFrameTimeValue，则从最后一帧开始
+                actualStartFrame = data.frames.length - 1;
+            }
+            console.log(`[apply-offset] Found start frame at index ${actualStartFrame} with frame_time ${data.frames[actualStartFrame]?.frame_time || 0} for requested time ${startFrameTimeValue}`);
+        }
+
         // 应用时间缩放
         // 例如: 原始时间 [1.5, 2.0, 3.0], 缩放 0.5
         // 间隔: [0.5, 1.0] -> 缩放后: [0.25, 0.5]
         // 累加到第一帧: [1.5, 1.75, 2.25]
         let updatedFrames = [];
         if (scale !== 1.0) {
-            const firstFrameTime = data.frames[0].frame_time || 0;
-            let accumulatedTime = firstFrameTime;
+            // 如果起始帧大于0，起始帧之前的所有帧保持不变
+            // 起始帧的时间保持不变，但起始帧之后的时间间隔需要缩放
+            let accumulatedTime = actualStartFrame > 0 
+                ? data.frames[actualStartFrame].frame_time || 0 
+                : data.frames[0].frame_time || 0;
             
             updatedFrames = data.frames.map((frame, index) => {
                 const updatedFrame = JSON.parse(JSON.stringify(frame));
                 
-                if (index === 0) {
-                    updatedFrame.frame_time = firstFrameTime;
+                // 起始帧之前的帧保持不变
+                if (index < actualStartFrame) {
+                    updatedFrame.frame_time = frame.frame_time || 0;
+                    return updatedFrame;
+                }
+                
+                // 起始帧的时间保持不变
+                if (index === actualStartFrame) {
+                    updatedFrame.frame_time = accumulatedTime;
                 } else {
                     // 计算与前一帧的时间间隔
                     const prevFrameTime = data.frames[index - 1].frame_time || 0;
@@ -447,59 +497,67 @@ app.post('/api/apply-offset', (req, res) => {
             updatedFrames = data.frames.map(frame => JSON.parse(JSON.stringify(frame)));
         }
         
-        // 计算偏移量：目标值 - 第一帧当前值
-        // x, y, z 和 timeOffset 都是目标值，需要计算与第一帧的差值作为偏移
+        // 计算偏移量：目标值 - 起始帧当前值
+        // x, y, z 和 timeOffset 都是目标值，需要计算与起始帧的差值作为偏移
         // 如果值为null/undefined，则不应用该轴的偏移
         if (updatedFrames.length > 0) {
-            const firstFrame = updatedFrames[0];
+            const startFrameData = updatedFrames[actualStartFrame];
             
-            // 获取第一帧的当前值
-            const firstFrameTime = firstFrame.frame_time || 0;
-            const firstFramePos = firstFrame.pos_world || { x: 0, y: 0, z: 0 };
-            const firstFrameX = firstFramePos.x ?? 0;
-            const firstFrameY = firstFramePos.y ?? 0;
-            const firstFrameZ = firstFramePos.z ?? 0;
+            // 获取起始帧的当前值
+            const startFrameTimeValue_current = startFrameData.frame_time || 0;
+            const startFramePos = startFrameData.pos_world || { x: 0, y: 0, z: 0 };
+            const startFrameX = startFramePos.x ?? 0;
+            const startFrameY = startFramePos.y ?? 0;
+            const startFrameZ = startFramePos.z ?? 0;
             
-            // 计算偏移量 = 目标值 - 第一帧当前值（只有当目标值不为null/undefined时才计算）
+            // 计算偏移量 = 目标值 - 起始帧当前值（只有当目标值不为null/undefined时才计算）
             let calculatedTimeOffset = undefined;
             if (tOffset !== undefined && tOffset !== null) {
-                calculatedTimeOffset = tOffset - firstFrameTime;
+                calculatedTimeOffset = tOffset - startFrameTimeValue_current;
             }
             
             let calculatedXOffset = undefined;
             if (offset && offset.x !== null && offset.x !== undefined) {
-                calculatedXOffset = offset.x - firstFrameX;
+                calculatedXOffset = offset.x - startFrameX;
             }
             
             let calculatedYOffset = undefined;
             if (offset && offset.y !== null && offset.y !== undefined) {
-                calculatedYOffset = offset.y - firstFrameY;
+                calculatedYOffset = offset.y - startFrameY;
             }
             
             let calculatedZOffset = undefined;
             if (offset && offset.z !== null && offset.z !== undefined) {
-                calculatedZOffset = offset.z - firstFrameZ;
+                calculatedZOffset = offset.z - startFrameZ;
             }
             
             console.log(`[apply-offset] Target values: time=${tOffset !== undefined ? tOffset : 'none'}, x=${offset && offset.x !== undefined ? offset.x : 'none'}, y=${offset && offset.y !== undefined ? offset.y : 'none'}, z=${offset && offset.z !== undefined ? offset.z : 'none'}`);
-            console.log(`[apply-offset] First frame values: time=${firstFrameTime}, x=${firstFrameX}, y=${firstFrameY}, z=${firstFrameZ}`);
+            console.log(`[apply-offset] Start frame (index ${actualStartFrame}) values: time=${startFrameTimeValue_current}, x=${startFrameX}, y=${startFrameY}, z=${startFrameZ}`);
             console.log(`[apply-offset] Calculated offsets: time=${calculatedTimeOffset !== undefined ? calculatedTimeOffset : 'none'}, x=${calculatedXOffset !== undefined ? calculatedXOffset : 'none'}, y=${calculatedYOffset !== undefined ? calculatedYOffset : 'none'}, z=${calculatedZOffset !== undefined ? calculatedZOffset : 'none'}`);
             
-            // 应用时间偏移到所有帧（只有当calculatedTimeOffset不为undefined时才应用）
+            // 应用时间偏移到起始帧及之后的帧（只有当calculatedTimeOffset不为undefined时才应用）
             if (calculatedTimeOffset !== undefined) {
-                const firstFrameTimeBefore = firstFrameTime;
-                updatedFrames = updatedFrames.map(frame => {
+                const startFrameTimeBefore = startFrameTimeValue_current;
+                updatedFrames = updatedFrames.map((frame, index) => {
                     const updatedFrame = JSON.parse(JSON.stringify(frame));
-                    updatedFrame.frame_time = (updatedFrame.frame_time || 0) + calculatedTimeOffset;
+                    // 只对起始帧及之后的帧应用时间偏移
+                    if (index >= actualStartFrame) {
+                        updatedFrame.frame_time = (updatedFrame.frame_time || 0) + calculatedTimeOffset;
+                    }
                     return updatedFrame;
                 });
-                const firstFrameTimeAfter = updatedFrames[0]?.frame_time;
-                console.log(`[apply-offset] First frame time: ${firstFrameTimeBefore} -> ${firstFrameTimeAfter}`);
+                const startFrameTimeAfter = updatedFrames[actualStartFrame]?.frame_time;
+                console.log(`[apply-offset] Start frame (index ${actualStartFrame}) time: ${startFrameTimeBefore} -> ${startFrameTimeAfter}`);
             }
             
-            // 应用空间偏移量到所有帧（只有当calculatedOffset不为undefined时才应用）
+            // 应用空间偏移量到起始帧及之后的帧（只有当calculatedOffset不为undefined时才应用）
             if (calculatedXOffset !== undefined || calculatedYOffset !== undefined || calculatedZOffset !== undefined) {
-                updatedFrames = updatedFrames.map(frame => {
+                updatedFrames = updatedFrames.map((frame, index) => {
+                    // 只对起始帧及之后的帧应用空间偏移
+                    if (index < actualStartFrame) {
+                        return frame;
+                    }
+                    
                     // Ensure pos_world exists
                     if (!frame.pos_world) {
                         frame.pos_world = { x: 0, y: 0, z: 0 };

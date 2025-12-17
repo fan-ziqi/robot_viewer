@@ -43,6 +43,9 @@ export class BasePoseControlsUI {
         // Timer for dynamic range adjustment
         this.rangeAdjustTimer = null;
         
+        // Flag to track if keyboard shortcuts are set up
+        this.keyboardShortcutsSetup = false;
+        
         // Store initial slider ranges for xyz (only expand, never shrink)
         this.xyzSliderRanges = {
             x: { min: -0.3, max: 0.3 },
@@ -52,6 +55,50 @@ export class BasePoseControlsUI {
         
         // Inject styles once
         this.injectStyles();
+        
+        // Setup keyboard shortcuts
+        this.setupKeyboardShortcuts();
+    }
+
+    /**
+     * Setup keyboard shortcuts for base pose controls
+     */
+    setupKeyboardShortcuts() {
+        // Only setup once
+        if (this.keyboardShortcutsSetup) {
+            return;
+        }
+        
+        // Listen for keyboard events
+        const handleKeyDown = (event) => {
+            // Check if base pose panel is open
+            const basePosePanel = document.getElementById('floating-base-pose-panel');
+            if (!basePosePanel || basePosePanel.style.display === 'none') {
+                return; // Panel is not open, ignore shortcut
+            }
+
+            // Check for Ctrl+Alt+S (save frame)
+            if (event.ctrlKey && event.altKey && event.key === 's') {
+                event.preventDefault(); // Prevent browser default save dialog
+                
+                // Get current model
+                const model = this.currentModel || (window.app && window.app.currentModel);
+                if (model) {
+                    this.saveFrame(model);
+                } else {
+                    this.showNotification(
+                        window.i18n?.t('noModelLoaded') || 'No model loaded',
+                        'error'
+                    );
+                }
+            }
+        };
+        
+        document.addEventListener('keydown', handleKeyDown);
+        this.keyboardShortcutsSetup = true;
+        
+        // Store handler for potential cleanup
+        this.keyboardShortcutHandler = handleKeyDown;
     }
 
     /**
@@ -119,6 +166,57 @@ export class BasePoseControlsUI {
             .base-pose-frame-input:hover {
                 background: rgba(255, 255, 255, 0.06);
                 border-color: rgba(255, 255, 255, 0.2);
+            }
+
+            /* Select dropdown styling - unified with input */
+            .base-pose-frame-input select,
+            select.base-pose-frame-input {
+                appearance: none;
+                -webkit-appearance: none;
+                -moz-appearance: none;
+                text-align: left;
+                padding-right: 28px;
+                cursor: pointer;
+                background: rgba(128, 128, 128, 0.2) !important;
+                background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23ffffff' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+                background-repeat: no-repeat;
+                background-position: right 10px center;
+                color: #ffffff !important;
+            }
+
+            .base-pose-frame-input select:hover,
+            select.base-pose-frame-input:hover {
+                background-color: rgba(128, 128, 128, 0.3) !important;
+                border-color: rgba(255, 255, 255, 0.2);
+            }
+
+            .base-pose-frame-input select:focus,
+            select.base-pose-frame-input:focus {
+                outline: none;
+                border-color: var(--accent);
+                background-color: rgba(128, 128, 128, 0.35) !important;
+            }
+
+            .base-pose-frame-input select option,
+            select.base-pose-frame-input option {
+                background-color: rgba(60, 60, 60, 0.95);
+                color: #ffffff;
+                padding: 8px 12px;
+            }
+
+            [data-theme="light"] .base-pose-frame-input select,
+            [data-theme="light"] select.base-pose-frame-input {
+                background: rgba(200, 200, 200, 0.3) !important;
+                background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23333333' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+                background-repeat: no-repeat;
+                background-position: right 10px center;
+                color: #333333 !important;
+            }
+
+            [data-theme="light"] .base-pose-frame-input select option,
+            [data-theme="light"] select.base-pose-frame-input option {
+                background-color: #ffffff;
+                color: #333333;
             }
 
             /* Frame slider container */
@@ -620,26 +718,50 @@ export class BasePoseControlsUI {
         // 1. Frame file name - FIRST ROW
         const frameFileGroup = document.createElement('div');
         frameFileGroup.className = 'base-pose-frame-group';
-        frameFileGroup.style.cssText = 'margin-bottom: 8px;';
+        frameFileGroup.style.cssText = 'margin-bottom: 8px; display: flex; gap: 8px; align-items: center;';
         
         const frameFileNameLabel = document.createElement('label');
         frameFileNameLabel.className = 'base-pose-frame-label';
         frameFileNameLabel.textContent = window.i18n?.t('frameFileName') || 'Frame File Name';
+        frameFileNameLabel.style.cssText = 'margin-right: 4px;';
         
-        const frameFileNameInput = document.createElement('input');
-        frameFileNameInput.type = 'text';
-        frameFileNameInput.className = 'base-pose-frame-input';
-        frameFileNameInput.value = this.frameFileName;
-        frameFileNameInput.placeholder = 'e.g., frame_go1_description.json';
-        frameFileNameInput.id = 'frame-file-name-input';
+        const frameFileNameSelect = document.createElement('select');
+        frameFileNameSelect.className = 'base-pose-frame-input';
+        frameFileNameSelect.id = 'frame-file-name-select';
+        frameFileNameSelect.style.cssText = 'flex: 1; padding: 6px 10px; min-width: 200px; text-align: left;';
         
-        frameFileNameInput.addEventListener('change', () => {
-            this.frameFileName = frameFileNameInput.value.trim();
+        // Add default empty option
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = window.i18n?.t('selectFrameFile') || 'Select Frame File...';
+        frameFileNameSelect.appendChild(defaultOption);
+        
+        // Set current value if exists
+        if (this.frameFileName && this.frameFileName.trim() !== '') {
+            const currentOption = document.createElement('option');
+            currentOption.value = this.frameFileName;
+            currentOption.textContent = this.frameFileName;
+            currentOption.selected = true;
+            frameFileNameSelect.appendChild(currentOption);
+        }
+        
+        frameFileNameSelect.addEventListener('change', () => {
+            this.frameFileName = frameFileNameSelect.value.trim();
+        });
+        
+        // Refresh file list when clicking on the dropdown
+        frameFileNameSelect.addEventListener('mousedown', async () => {
+            await this.scanFrameFiles('./frames', frameFileNameSelect);
         });
         
         frameFileGroup.appendChild(frameFileNameLabel);
-        frameFileGroup.appendChild(frameFileNameInput);
+        frameFileGroup.appendChild(frameFileNameSelect);
         container.appendChild(frameFileGroup);
+        
+        // Initial file scan
+        this.scanFrameFiles('./frames', frameFileNameSelect).catch(err => {
+            console.error('Initial file scan failed:', err);
+        });
 
         // Save and Load buttons - SECOND ROW
         const buttonRow = document.createElement('div');
@@ -838,6 +960,28 @@ export class BasePoseControlsUI {
         timeOffsetGroup.appendChild(timeOffsetInput);
         timeOffsetGroup.appendChild(timeOffsetUnit);
         
+        // Start frame time
+        const startFrameGroup = document.createElement('div');
+        startFrameGroup.style.cssText = 'display: flex; align-items: center; gap: 4px;';
+        const startFrameLabel = document.createElement('label');
+        startFrameLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500; min-width: 50px;';
+        startFrameLabel.textContent = window.i18n?.t('startFrameTime') || 'Start Time:';
+        const startFrameInput = document.createElement('input');
+        startFrameInput.type = 'number';
+        startFrameInput.className = 'base-pose-frame-input';
+        startFrameInput.id = 'start-frame-time-input';
+        startFrameInput.value = '';
+        startFrameInput.step = '0.0001';
+        startFrameInput.min = '0';
+        startFrameInput.style.cssText = 'width: 80px; padding: 4px 6px; text-align: center;';
+        startFrameInput.placeholder = '0.0000';
+        const startFrameUnit = document.createElement('span');
+        startFrameUnit.style.cssText = 'font-size: 11px; color: var(--text-secondary);';
+        startFrameUnit.textContent = 's';
+        startFrameGroup.appendChild(startFrameLabel);
+        startFrameGroup.appendChild(startFrameInput);
+        startFrameGroup.appendChild(startFrameUnit);
+        
         // Apply Offset button
         const applyOffsetBtn = document.createElement('button');
         applyOffsetBtn.id = 'apply-offset-btn';
@@ -853,6 +997,7 @@ export class BasePoseControlsUI {
         worldOffsetGroup.appendChild(zOffsetGroup);
         worldOffsetGroup.appendChild(timeScaleGroup);
         worldOffsetGroup.appendChild(timeOffsetGroup);
+        worldOffsetGroup.appendChild(startFrameGroup);
         worldOffsetGroup.appendChild(applyOffsetBtn);
         container.appendChild(worldOffsetGroup);
 
@@ -1584,9 +1729,9 @@ export class BasePoseControlsUI {
         // Validate file name
         if (!this.frameFileName || this.frameFileName.trim() === '') {
             this.showNotification(window.i18n?.t('frameFileNameRequired') || 'Please enter a frame file name', 'error');
-            const frameFileNameInput = document.getElementById('frame-file-name-input');
-            if (frameFileNameInput) {
-                frameFileNameInput.focus();
+            const frameFileNameSelect = document.getElementById('frame-file-name-select');
+            if (frameFileNameSelect) {
+                frameFileNameSelect.focus();
             }
             return;
         }
@@ -1761,9 +1906,9 @@ export class BasePoseControlsUI {
         // Validate file name
         if (!this.frameFileName || this.frameFileName.trim() === '') {
             this.showNotification(window.i18n?.t('frameFileNameRequired') || 'Please enter a frame file name', 'error');
-            const frameFileNameInput = document.getElementById('frame-file-name-input');
-            if (frameFileNameInput) {
-                frameFileNameInput.focus();
+            const frameFileNameSelect = document.getElementById('frame-file-name-select');
+            if (frameFileNameSelect) {
+                frameFileNameSelect.focus();
             }
             return;
         }
@@ -1787,6 +1932,16 @@ export class BasePoseControlsUI {
             }
         }
 
+        // Get start frame time - if empty, set to null (apply to all frames)
+        const startFrameInput = document.getElementById('start-frame-time-input');
+        let startFrameTime = null;
+        if (startFrameInput && startFrameInput.value.trim() !== '') {
+            const parsed = parseFloat(startFrameInput.value);
+            if (!isNaN(parsed) && parsed >= 0) {
+                startFrameTime = parsed;
+            }
+        }
+
         // Build confirmation message
         const offsetParts = [];
         if (this.worldOffset.x !== null && this.worldOffset.x !== undefined) {
@@ -1799,7 +1954,12 @@ export class BasePoseControlsUI {
             offsetParts.push(`z=${this.worldOffset.z.toFixed(4)}`);
         }
         
-        let confirmMessage = `This will modify all frames in the file`;
+        let confirmMessage = `This will modify frames`;
+        if (startFrameTime !== null) {
+            confirmMessage += ` from frame time ${startFrameTime.toFixed(4)}s onwards`;
+        } else {
+            confirmMessage += ` in the file`;
+        }
         if (offsetParts.length > 0) {
             confirmMessage += ` with offset (${offsetParts.join(', ')})`;
         }
@@ -1845,7 +2005,8 @@ export class BasePoseControlsUI {
                         z: this.worldOffset.z
                     },
                     timeScale: timeScale,
-                    timeOffset: timeOffset !== null ? timeOffset : undefined
+                    timeOffset: timeOffset !== null ? timeOffset : undefined,
+                    startFrameTime: startFrameTime !== null ? startFrameTime : undefined
                 })
             });
 
@@ -1888,9 +2049,9 @@ export class BasePoseControlsUI {
         // Validate file name
         if (!this.frameFileName || this.frameFileName.trim() === '') {
             this.showNotification(window.i18n?.t('frameFileNameRequired') || 'Please enter a frame file name', 'error');
-            const frameFileNameInput = document.getElementById('frame-file-name-input');
-            if (frameFileNameInput) {
-                frameFileNameInput.focus();
+            const frameFileNameSelect = document.getElementById('frame-file-name-select');
+            if (frameFileNameSelect) {
+                frameFileNameSelect.focus();
             }
             return;
         }
@@ -2268,6 +2429,9 @@ export class BasePoseControlsUI {
     populateFileSelect(selectElement, files) {
         if (!selectElement) return;
         
+        // Save current selection
+        const currentValue = selectElement.value;
+        
         // Keep only the default option
         while (selectElement.options.length > 1) {
             selectElement.remove(1);
@@ -2281,8 +2445,14 @@ export class BasePoseControlsUI {
             selectElement.appendChild(option);
         });
         
-        // Reset selection
-        selectElement.value = '';
+        // Restore selection if it still exists in the new list
+        if (currentValue && files.includes(currentValue)) {
+            selectElement.value = currentValue;
+            this.frameFileName = currentValue;
+        } else {
+            // Reset selection if current value is not in the list
+            selectElement.value = '';
+        }
     }
 
     /**
@@ -2299,6 +2469,7 @@ export class BasePoseControlsUI {
             this.adjustXYZSliderRanges();
         }, 100);
     }
+
 
     /**
      * Adjust xyz slider ranges dynamically based on current values
@@ -2478,13 +2649,25 @@ export class BasePoseControlsUI {
             const dt = 1.0 / fps;
             const tStart = times[0];
             const tEnd = times[times.length - 1];
+            const duration = tEnd - tStart;
+            
+            // Calculate exact number of frames to avoid floating point precision issues
+            const numFrames = Math.floor(duration * fps) + 1; // +1 to include the last frame
             const trajectory = [];
 
-            let t = tStart;
-            while (t <= tEnd) {
-                const frame = this.interpolateFrameAtTime(frames, times, t, jointNames);
+            // Generate frames using exact frame count instead of time comparison
+            for (let i = 0; i < numFrames; i++) {
+                const t = tStart + i * dt;
+                // Ensure we don't exceed tEnd due to floating point errors
+                const clampedT = Math.min(t, tEnd);
+                const frame = this.interpolateFrameAtTime(frames, times, clampedT, jointNames);
                 trajectory.push(frame);
-                t += dt;
+            }
+            
+            // Ensure the last frame is exactly at tEnd
+            if (trajectory.length > 0) {
+                const lastFrame = this.interpolateFrameAtTime(frames, times, tEnd, jointNames);
+                trajectory[trajectory.length - 1] = lastFrame;
             }
 
             // Extend first frame if needed
