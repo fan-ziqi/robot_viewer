@@ -317,9 +317,9 @@ export class InertialVisualization {
         } else if (inertial.origin && inertial.origin.rpy) {
             // For URDF with RPY (though this is usually just for COM position, not inertia orientation)
             const rpy = inertial.origin.rpy;
-            inertiaBox.rotation.set(rpy[0], rpy[1], rpy[2], 'XYZ');
+            inertiaBox.rotation.set(rpy[0], rpy[1], rpy[2], 'ZYX');
         } else {
-            inertiaBox.rotation.set(0, 0, 0);
+            inertiaBox.rotation.set(0, 0, 0, 'ZYX');
         }
 
         inertiaBox.visible = this.showInertia;

@@ -1588,11 +1588,12 @@ export class MJCFAdapter {
                         mesh.rotation.set(
                             fromtoRpy[0] + visual.origin.rpy[0],
                             fromtoRpy[1] + visual.origin.rpy[1],
-                            fromtoRpy[2] + visual.origin.rpy[2]
+                            fromtoRpy[2] + visual.origin.rpy[2],
+                            'ZYX'
                         );
                     } else {
-                        mesh.position.set(...visual.origin.xyz);
-                        mesh.rotation.set(...visual.origin.rpy);
+                        mesh.position.set(...visual.origin.xyz, 'ZYX');
+                        mesh.rotation.set(...visual.origin.rpy, 'ZYX');
                     }
                     mesh.name = visual.name || 'visual';
 
@@ -1716,11 +1717,12 @@ export class MJCFAdapter {
                         mesh.rotation.set(
                             fromtoRpy[0] + collision.origin.rpy[0],
                             fromtoRpy[1] + collision.origin.rpy[1],
-                            fromtoRpy[2] + collision.origin.rpy[2]
+                            fromtoRpy[2] + collision.origin.rpy[2],
+                            'ZYX'
                         );
                     } else {
                         mesh.position.set(...collision.origin.xyz);
-                        mesh.rotation.set(...collision.origin.rpy);
+                        mesh.rotation.set(...collision.origin.rpy,'ZYX');
                     }
                     mesh.name = collision.name || 'collision';
 
@@ -1798,7 +1800,7 @@ export class MJCFAdapter {
                     bodyOrigin.xyz[1] + joint.origin.xyz[1],
                     bodyOrigin.xyz[2] + joint.origin.xyz[2]
                 );
-                jointGroup.rotation.set(...bodyOrigin.rpy);
+                jointGroup.rotation.set(...bodyOrigin.rpy, 'ZYX');
 
                 // Recursively build child link
                 buildHierarchy(childLinkName, jointGroup);
@@ -1825,7 +1827,7 @@ export class MJCFAdapter {
                         // Create fixed connection group
                         const fixedGroup = new THREE.Group();
                         fixedGroup.position.set(...childBodyOrigin.xyz);
-                        fixedGroup.rotation.set(...childBodyOrigin.rpy);
+                        fixedGroup.rotation.set(...childBodyOrigin.rpy, 'ZYX');
 
                         // Recursively build child body and add to fixed group
                         buildHierarchy(childName, fixedGroup);
@@ -1844,7 +1846,7 @@ export class MJCFAdapter {
                 const rootLinkGroup = linkObjects.get(rootName);
                 if (rootLink.userData.bodyOrigin) {
                     rootLinkGroup.position.set(...rootLink.userData.bodyOrigin.xyz);
-                    rootLinkGroup.rotation.set(...rootLink.userData.bodyOrigin.rpy);
+                    rootLinkGroup.rotation.set(...rootLink.userData.bodyOrigin.rpy, 'ZYX');
                 }
                 buildHierarchy(rootName, rootGroup);
             });
@@ -1855,7 +1857,7 @@ export class MJCFAdapter {
             const firstLinkGroup = linkObjects.get(firstLink);
             if (firstLinkObj.userData.bodyOrigin) {
                 firstLinkGroup.position.set(...firstLinkObj.userData.bodyOrigin.xyz);
-                firstLinkGroup.rotation.set(...firstLinkObj.userData.bodyOrigin.rpy);
+                firstLinkGroup.rotation.set(...firstLinkObj.userData.bodyOrigin.rpy, 'ZYX');
             }
             buildHierarchy(firstLink, rootGroup);
         }

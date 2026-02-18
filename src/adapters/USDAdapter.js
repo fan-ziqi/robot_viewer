@@ -337,7 +337,7 @@ export class USDAdapter {
                 const mesh = this.createGeometryMesh(visual.geometry);
                 if (mesh) {
                     mesh.position.set(...visual.origin.xyz);
-                    mesh.rotation.set(...visual.origin.rpy);
+                    mesh.rotation.set(...visual.origin.rpy, 'ZYX');
                     mesh.name = visual.name;
                     linkGroup.add(mesh);
                     visual.threeObject = mesh;
