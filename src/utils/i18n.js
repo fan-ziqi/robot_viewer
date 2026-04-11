@@ -48,6 +48,37 @@ export const translations = {
         'unsaved': '未保存',
         'noFileOpen': '未打开文件',
 
+        // 姿态配置
+        'jointPoseTitle': '姿态配置',
+        'jointPoseGroupsField': '关节分组',
+        'jointPoseValuesField': '姿态数值 (rad)',
+        'jointPoseApply': '应用',
+        'jointPoseCopyValues': '复制数值',
+        'jointPoseGroupsPlaceholder': 'waist: [joint_a, joint_b]\narm: [joint_c, joint_d]',
+        'jointPoseValuesPlaceholder': 'waist: [0.0, 0.0]\narm: [0.9, -0.9]',
+        'jointPoseConfigEdited': '姿态配置已修改，点击“应用”后恢复联动。',
+        'jointPoseReapplyRequired': '已保留姿态配置，请对当前模型重新点击“应用”。',
+        'jointPoseApplySuccess': '姿态应用成功。',
+        'jointPoseApplyClamped': '姿态已应用，有 {count} 个关节值被裁剪到当前限位范围。',
+        'jointPoseCopySuccess': '姿态数值已复制。',
+        'jointPoseCopyFailed': '复制姿态数值失败：{reason}',
+        'jointPoseClipboardUnavailable': '当前环境不支持剪贴板复制。',
+        'jointPoseGroupsRequired': '请先填写关节分组 YAML。',
+        'jointPoseValuesRequired': '请先填写姿态数值 YAML。',
+        'jointPoseYamlParseFailed': '解析 {field} 失败：{reason}',
+        'jointPoseMappingExpected': '{field} 必须是 YAML 映射。',
+        'jointPoseSequenceExpected': '{field}.{group} 必须是数组。',
+        'jointPoseGroupNameRequired': '{field} 中包含空的分组名称。',
+        'jointPoseGroupDuplicate': '{field} 中的分组 {group} 重复定义。',
+        'jointPoseJointNameInvalid': '{field}.{group}[{index}] 必须是非空关节名字符串。',
+        'jointPoseValueInvalid': '{field}.{group}[{index}] 必须是有限数字。',
+        'jointPoseGroupMismatch': '关节分组和姿态数值必须包含完全相同的分组。',
+        'jointPoseGroupOrderMismatch': '姿态数值的分组顺序必须与关节分组一致。',
+        'jointPoseLengthMismatch': '分组 {group} 中关节数量为 {jointCount}，数值数量为 {valueCount}。',
+        'jointPoseJointMissing': '当前模型中不存在关节 {joint}。',
+        'jointPoseJointFixed': '关节 {joint} 是 fixed，无法控制。',
+        'jointPoseJointDuplicate': '关节 {joint} 被重复分配。',
+
         // 帮助对话框
         'helpTitle': `Robot Viewer v${APP_VERSION}`,
         'about': '关于',
@@ -170,6 +201,37 @@ export const translations = {
         'saved': 'Saved',
         'unsaved': 'Unsaved',
         'noFileOpen': 'No File Open',
+
+        // Pose config
+        'jointPoseTitle': 'Pose Config',
+        'jointPoseGroupsField': 'Joint Groups',
+        'jointPoseValuesField': 'Pose Values (rad)',
+        'jointPoseApply': 'Apply',
+        'jointPoseCopyValues': 'Copy Values',
+        'jointPoseGroupsPlaceholder': 'waist: [joint_a, joint_b]\narm: [joint_c, joint_d]',
+        'jointPoseValuesPlaceholder': 'waist: [0.0, 0.0]\narm: [0.9, -0.9]',
+        'jointPoseConfigEdited': 'Pose config changed. Click Apply to resume syncing.',
+        'jointPoseReapplyRequired': 'Pose config was kept. Click Apply to use it with the current model.',
+        'jointPoseApplySuccess': 'Pose applied successfully.',
+        'jointPoseApplyClamped': 'Pose applied. {count} joint values were clamped to the current limits.',
+        'jointPoseCopySuccess': 'Pose values copied to clipboard.',
+        'jointPoseCopyFailed': 'Failed to copy pose values: {reason}',
+        'jointPoseClipboardUnavailable': 'Clipboard is unavailable in this browser context.',
+        'jointPoseGroupsRequired': 'Joint groups YAML is required.',
+        'jointPoseValuesRequired': 'Pose values YAML is required.',
+        'jointPoseYamlParseFailed': 'Failed to parse {field}: {reason}',
+        'jointPoseMappingExpected': '{field} must be a YAML mapping.',
+        'jointPoseSequenceExpected': '{field}.{group} must be an array.',
+        'jointPoseGroupNameRequired': '{field} contains an empty group name.',
+        'jointPoseGroupDuplicate': 'Group {group} is declared more than once in {field}.',
+        'jointPoseJointNameInvalid': '{field}.{group}[{index}] must be a non-empty joint name string.',
+        'jointPoseValueInvalid': '{field}.{group}[{index}] must be a finite number.',
+        'jointPoseGroupMismatch': 'Joint groups and pose values must contain the same groups.',
+        'jointPoseGroupOrderMismatch': 'Pose values must use the same group order as joint groups.',
+        'jointPoseLengthMismatch': 'Group {group} has {jointCount} joints but {valueCount} values.',
+        'jointPoseJointMissing': 'Joint {joint} does not exist in the current model.',
+        'jointPoseJointFixed': 'Joint {joint} is fixed and cannot be controlled.',
+        'jointPoseJointDuplicate': 'Joint {joint} is assigned more than once.',
 
         // Help dialog
         'helpTitle': `Robot Viewer v${APP_VERSION}`,
@@ -337,5 +399,4 @@ class I18n {
 
 // 创建全局实例
 export const i18n = new I18n();
-
 
