@@ -20,9 +20,7 @@ jobs:
           node-version: '18'
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
+        uses: pnpm/action-setup@v4
 
       - name: Get pnpm store directory
         id: pnpm-cache
@@ -56,4 +54,3 @@ jobs:
           tag_name: ${{ github.event.release.tag_name }}
           files: robot-viewer-${{ github.event.release.tag_name }}.zip
           overwrite: true
-

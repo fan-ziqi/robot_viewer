@@ -585,22 +585,7 @@ export class SceneManager {
             // Apply parallel mechanism constraints
             this.constraintManager.applyConstraints(model, joint);
 
-            // Update corresponding slider (if exists)
-            const slider = document.querySelector(`input[data-joint="${joint.name}"]`);
-            if (slider) {
-                slider.value = angle;
-
-                // Update input box
-                const valueInput = document.querySelector(`input[data-joint-input="${joint.name}"]`);
-                if (valueInput) {
-                    const angleUnit = document.querySelector('#unit-deg.active') ? 'deg' : 'rad';
-                    if (angleUnit === 'deg') {
-                        valueInput.value = (angle * 180 / Math.PI).toFixed(2);
-                    } else {
-                        valueInput.value = angle.toFixed(2);
-                    }
-                }
-            }
+            this.emit('jointValueChanged', model, joint.name, angle);
 
             // Only render during drag, no complex calculations
             this.redraw();

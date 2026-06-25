@@ -1945,6 +1945,150 @@
             border-bottom-color: rgba(0, 0, 0, 0.08);
         }
 
+        .joint-pose-config {
+            margin-bottom: 10px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        [data-theme="light"] .joint-pose-config {
+            background: rgba(0, 0, 0, 0.03);
+            border-color: rgba(0, 0, 0, 0.08);
+        }
+
+        .joint-pose-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .joint-pose-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .joint-pose-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .joint-pose-textarea {
+            width: 100%;
+            min-height: 86px;
+            padding: 10px 12px;
+            resize: vertical;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-size: 12px;
+            line-height: 1.45;
+            font-family: 'SF Mono', Monaco, monospace;
+            transition: all 0.2s;
+        }
+
+        .joint-pose-textarea:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.18);
+        }
+
+        .joint-pose-textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .joint-pose-textarea::placeholder {
+            color: var(--text-tertiary);
+        }
+
+        [data-theme="light"] .joint-pose-textarea {
+            background: rgba(0, 0, 0, 0.025);
+            border-color: rgba(0, 0, 0, 0.1);
+        }
+
+        [data-theme="light"] .joint-pose-textarea:hover {
+            background: rgba(0, 0, 0, 0.04);
+            border-color: rgba(0, 0, 0, 0.14);
+        }
+
+        [data-theme="light"] .joint-pose-textarea:focus {
+            background: rgba(0, 0, 0, 0.045);
+        }
+
+        .joint-pose-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .joint-pose-button {
+            padding: 6px 12px;
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 10px;
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .joint-pose-button:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        .joint-pose-button.primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+            box-shadow: 0 1px 4px rgba(10, 132, 255, 0.3);
+        }
+
+        .joint-pose-button.primary:hover {
+            background: var(--accent-hover);
+            border-color: var(--accent-hover);
+        }
+
+        [data-theme="light"] .joint-pose-button {
+            border-color: rgba(0, 0, 0, 0.1);
+        }
+
+        [data-theme="light"] .joint-pose-button:hover {
+            background: rgba(0, 0, 0, 0.05);
+        }
+
+        .joint-pose-status {
+            min-height: 16px;
+            font-size: 11px;
+            line-height: 1.4;
+            color: var(--text-tertiary);
+        }
+
+        .joint-pose-status.success {
+            color: #4ade80;
+        }
+
+        .joint-pose-status.error {
+            color: #ff6b6b;
+        }
+
+        .joint-pose-status.warning {
+            color: #fbbf24;
+        }
+
+        .joint-pose-status.info {
+            color: #4a9eff;
+        }
+
         .joint-control {
             margin-bottom: 3px;
             padding: 5px 8px;

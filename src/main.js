@@ -145,6 +145,12 @@ class App {
             // Initialize joint controls UI
             this.jointControlsUI = new JointControlsUI(this.sceneManager);
 
+            this.sceneManager.on('jointValueChanged', (model) => {
+                if (this.jointControlsUI && this.currentModel === model) {
+                    this.jointControlsUI.handleExternalJointValueChange(model);
+                }
+            });
+
             // Initialize model graph view
             this.modelGraphView = new ModelGraphView(this.sceneManager);
 
