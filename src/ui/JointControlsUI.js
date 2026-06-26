@@ -22,6 +22,57 @@ export class JointControlsUI {
     }
 
     /**
+     * Whether the joint moves along an axis (translation) instead of rotating.
+     * URDF "prismatic" and MJCF "slide" joints are both normalized to 'prismatic'.
+     */
+    isTranslational(joint) {
+        return joint && joint.type === 'prismatic';
+    }
+
+    /**
+     * Display unit for a joint, depending on its type and the current unit toggle.
+     * Translation: m / mm. Rotation: rad / °.
+     */
+    getJointUnit(joint) {
+        if (this.isTranslational(joint)) {
+            return this.angleUnit === 'deg' ? 'mm' : 'm';
+        }
+        return this.angleUnit === 'deg' ? '°' : 'rad';
+    }
+
+    /**
+     * Number of decimals used when displaying a joint value.
+     */
+    getDisplayDecimals(joint) {
+        if (this.isTranslational(joint)) {
+            return this.angleUnit === 'deg' ? 1 : 3; // mm : m
+        }
+        return this.angleUnit === 'deg' ? 1 : 2; // ° : rad
+    }
+
+    /**
+     * Convert an internal joint value (radians for rotation, meters for
+     * translation) to the currently displayed unit.
+     */
+    toDisplayValue(joint, baseValue) {
+        if (this.isTranslational(joint)) {
+            return this.angleUnit === 'deg' ? baseValue * 1000 : baseValue; // m -> mm
+        }
+        return this.angleUnit === 'deg' ? baseValue * 180 / Math.PI : baseValue; // rad -> deg
+    }
+
+    /**
+     * Convert a value entered in the displayed unit back to the internal value
+     * (radians for rotation, meters for translation).
+     */
+    fromDisplayValue(joint, displayValue) {
+        if (this.isTranslational(joint)) {
+            return this.angleUnit === 'deg' ? displayValue / 1000 : displayValue; // mm -> m
+        }
+        return this.angleUnit === 'deg' ? displayValue * Math.PI / 180 : displayValue; // deg -> rad
+    }
+
+    /**
      * Update XML content in editor (URDF format only)
      */
     updateEditorXML(jointName, limits) {
@@ -143,6 +194,10 @@ export class JointControlsUI {
     createJointControl(joint, model) {
         const div = document.createElement('div');
         div.className = 'joint-control';
+        // Tint only translation joints differently; rotation joints keep the default style
+        if (this.isTranslational(joint)) {
+            div.classList.add('joint-control--prismatic');
+        }
 
         // First row: name + value
         const header = document.createElement('div');
@@ -202,26 +257,19 @@ export class JointControlsUI {
 
         const valueUnit = document.createElement('span');
         valueUnit.className = 'joint-value-unit';
-        valueUnit.textContent = this.angleUnit === 'deg' ? '°' : 'rad';
+        valueUnit.textContent = this.getJointUnit(joint);
 
         const updateLabels = () => {
             const currentMin = parseFloat(slider.min);
             const currentMax = parseFloat(slider.max);
-
-            if (this.angleUnit === 'deg') {
-                minLabel.value = (currentMin * 180 / Math.PI).toFixed(1);
-                maxLabel.value = (currentMax * 180 / Math.PI).toFixed(1);
-            } else {
-                minLabel.value = currentMin.toFixed(2);
-                maxLabel.value = currentMax.toFixed(2);
-            }
+            const decimals = this.getDisplayDecimals(joint);
+            minLabel.value = this.toDisplayValue(joint, currentMin).toFixed(decimals);
+            maxLabel.value = this.toDisplayValue(joint, currentMax).toFixed(decimals);
         };
 
         const updateValueInput = () => {
             const value = parseFloat(slider.value);
-            valueInput.value = this.angleUnit === 'deg' ?
-                (value * 180 / Math.PI).toFixed(1) :
-                value.toFixed(2);
+            valueInput.value = this.toDisplayValue(joint, value).toFixed(this.getDisplayDecimals(joint));
         };
 
         updateLabels();
@@ -235,9 +283,7 @@ export class JointControlsUI {
                 return;
             }
 
-            let valueInRad = this.angleUnit === 'deg' ?
-                inputValue * Math.PI / 180 :
-                inputValue;
+            let valueInRad = this.fromDisplayValue(joint, inputValue);
 
             const currentMax = parseFloat(slider.max);
             if (valueInRad >= currentMax) {
@@ -283,9 +329,7 @@ export class JointControlsUI {
                 return;
             }
 
-            let valueInRad = this.angleUnit === 'deg' ?
-                inputValue * Math.PI / 180 :
-                inputValue;
+            let valueInRad = this.fromDisplayValue(joint, inputValue);
 
             const currentMin = parseFloat(slider.min);
             if (valueInRad <= currentMin) {
@@ -505,9 +549,7 @@ export class JointControlsUI {
                 return;
             }
 
-            let valueInRad = this.angleUnit === 'deg' ?
-                inputValue * Math.PI / 180 :
-                inputValue;
+            let valueInRad = this.fromDisplayValue(joint, inputValue);
 
             const currentMin = parseFloat(slider.min);
             const currentMax = parseFloat(slider.max);
@@ -536,7 +578,7 @@ export class JointControlsUI {
         div._updateDisplay = () => {
             updateValueInput();
             updateLabels();
-            valueUnit.textContent = this.angleUnit === 'deg' ? '°' : 'rad';
+            valueUnit.textContent = this.getJointUnit(joint);
         };
 
         return div;

@@ -1972,6 +1972,27 @@
             border-color: rgba(0, 0, 0, 0.12);
         }
 
+        /* Translation joints: subtle amber accent (rotation joints keep default style) */
+        .joint-control--prismatic {
+            background: rgba(251, 191, 36, 0.08);
+            border-color: rgba(251, 191, 36, 0.25);
+        }
+
+        .joint-control--prismatic:hover {
+            background: rgba(251, 191, 36, 0.12);
+            border-color: rgba(251, 191, 36, 0.35);
+        }
+
+        [data-theme="light"] .joint-control--prismatic {
+            background: rgba(217, 119, 6, 0.08);
+            border-color: rgba(217, 119, 6, 0.25);
+        }
+
+        [data-theme="light"] .joint-control--prismatic:hover {
+            background: rgba(217, 119, 6, 0.12);
+            border-color: rgba(217, 119, 6, 0.35);
+        }
+
         .joint-header {
             display: flex;
             justify-content: space-between;
