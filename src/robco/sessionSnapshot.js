@@ -23,6 +23,7 @@
  * routinely exceed localStorage's ~5MB quota.
  */
 import { buildStaticRobco } from './robcoBuild.js';
+import { dock } from './dock/DockManager.js';
 
 export const FORMAT = 'robco-session';
 export const VERSION = 1;
@@ -40,6 +41,8 @@ const LS_KEYS = [
     'robco-tcp-payload',
     'robco-dyn-motormodel',
     'robco-dyn-settings',
+    'robco-camera',
+    'robco-blender',
     'robco-dock-layout-v1',
 ];
 
@@ -228,8 +231,11 @@ export async function restoreSession(app, session) {
     const sm = app.sceneManager;
 
     // 1) Seed localStorage so the panels' own _restore() paths rehydrate base pose, render
-    //    settings, waypoints, tool config and dynamics during the build below.
+    //    settings, waypoints, tool config and dynamics during the build below. The dock consumed
+    //    localStorage at boot (before this seed), so tell it to re-read — otherwise the session's
+    //    panel layout would never apply, and the dock's next _save() would clobber it.
     writeLocalStorage(session.localStorage);
+    if (dock.enabled) dock.reloadLayout();
 
     // 2) Arm the camera restore before the model build kicks off fitCameraToModel.
     restoreCameraOnReady(sm, session.camera);

@@ -228,7 +228,16 @@ export class BlenderExport {
         const camView = window._robcoCameraView;
         const cam = camView?.cam || null;
         const camWasVisible = cam ? cam.visible : true;
-        if (cam && !camView.cfg?.enabled) cam.visible = false;
+        if (cam && !camView.cfg?.enabled) {
+            cam.visible = false;
+        } else if (cam) {
+            // CameraView drives the camera through cam.matrix alone (matrixAutoUpdate=false), but
+            // exporting with animations forces GLTFExporter into TRS mode, which serializes
+            // position/quaternion/scale and ignores .matrix — sync them or the camera lands in
+            // Blender at the flange origin facing the wrong way. Safe to leave in place: with
+            // matrixAutoUpdate off these properties are otherwise inert.
+            cam.matrix.decompose(cam.position, cam.quaternion, cam.scale);
+        }
 
         // Z-up: reparent the root under a −90°X group for the duration of the export, so the
         // Z-up robot data becomes Y-up per the glTF spec and Blender's importer re-erects it.

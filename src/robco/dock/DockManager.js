@@ -57,6 +57,7 @@ const AVAILABILITY_HINT = {
     camera: 'loads with a robot',
     waypoints: 'loads with a robot',
     dynamics: 'loads with a robot',
+    blender: 'loads with a robot',
     stream: 'appears on live connect',
 };
 
@@ -516,6 +517,42 @@ class DockManager {
                 this._placeDocked(rec, rec.def.dock === 'right' ? 'right' : 'left');
             }
         }
+        this._save();
+    }
+
+    /**
+     * Re-read the persisted layout and re-place every adopted panel accordingly. Session restore
+     * needs this: enable() consumed localStorage at boot, before restoreSession() seeds the
+     * session file's layout — without a re-read the seeded layout would never apply, and the next
+     * _save() would clobber it with the stale in-memory state. Panels adopted after this call
+     * (the robot toolset built during restore) pick the new state up via adoptPanel as usual.
+     */
+    reloadLayout() {
+        const saved = loadLayout();
+        if (!saved) return;
+        this.state = { ...this.state, ...saved };
+        const recs = [...this.panels.values()];
+        for (const rec of recs) {
+            if (rec.popup) this._returnFromPopup(rec);
+            rec.hidden = this.state.closed.includes(rec.key);
+            rec.item.style.display = rec.hidden ? 'none' : '';
+        }
+        // _placeDocked's insert-before-next-placed-key scan makes this order-independent.
+        for (const rec of recs.sort((a, b) => a.def.order - b.def.order)) {
+            if (this.state.left.includes(rec.key)) {
+                this._placeDocked(rec, 'left', { index: this.state.left.indexOf(rec.key) });
+            } else if (this.state.right.includes(rec.key)) {
+                this._placeDocked(rec, 'right', { index: this.state.right.indexOf(rec.key) });
+            } else if (this.state.float[rec.key]) {
+                this._placeFloating(rec, this.state.float[rec.key]);
+            } else if (rec.def.dock === 'float') {
+                this._placeFloating(rec, this._defaultFloatPos(rec));
+            } else {
+                this._placeDocked(rec, rec.def.dock, { index: this._defaultDockIndex(rec, rec.def.dock) });
+            }
+            this._setCollapsed(rec, !!this.state.collapsed[rec.key], false);
+        }
+        this._layoutDocks();
         this._save();
     }
 
