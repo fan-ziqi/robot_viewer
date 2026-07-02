@@ -40,6 +40,31 @@ pnpm preview        # serve the built dist/ locally
 The dev server sets `COOP`/`COEP` headers (required for the USD WebAssembly viewer's
 `SharedArrayBuffer`); production hosting mirrors this.
 
+## Running the RobCo features locally
+
+The RobCo tools (teach pendant, IK pose finder, dynamics dashboard + per-joint graphs,
+waypoints, TCP trace, robot-config picker, camera view) only load when you ask for them via a
+`?robco=` query param — `http://localhost:3000/?robco=…`. With no param you get the plain
+upstream viewer. The loader is [src/robco/devLoad.js](src/robco/devLoad.js).
+
+| URL | What it does |
+|---|---|
+| `?robco=live` | Build a **full 6-DOF demo arm** statically from the public module CDN (`robco.studio/modules`), posed to a lifelike angle. Online, read-only — no session needed. **Use this to exercise the whole tool stack.** |
+| `?robco=fixtures` | Build **fully offline** from `public/robco-fixtures/` — no network. Only two modules are bundled (`0001_D86`, `0005_I86-150`), so it loads a single module by default; useful for adapter/loader work, not a full arm. |
+| `?robco=fixtures&ids=0001,0005` | Offline chain from the bundled fixtures (4-digit ids). |
+| `?robco=<base_url>&ids=…` | Static build from any geometry base URL + id chain. |
+| `?robco=session&sid=<SID>` | **Live**: connect the WebSocket, build from the session's `robotModuleIds`, mirror joint angles in real time. Needs a valid session (see the Connect dialog / session clipper). |
+| `?robco=local&host=<ip>&port=8000` | **Live** against a robot on your LAN. |
+| `?robco=connect` | Open the connect dialog and pick a session interactively. |
+
+Extras: with **no** `?robco=` param the app auto-restores your last saved workspace / live
+session; append `?chrome=1` to keep the original upstream viewer UI (top bar, side panels,
+code editor) alongside the RobCo panels for debugging.
+
+Applying a robot config *to* a connected RobCo Studio session goes through
+`POST https://api.robco.studio/public/virtual-robot/configure` with a Cognito **ID** token
+(account-level — not the session/editor token); see [src/robco/liveConnect.js](src/robco/liveConnect.js).
+
 ## Repository layout
 
 ```
@@ -83,6 +108,11 @@ all deploys; the app falls back to a built-in procedural environment when it's a
      merge.
   7. Merge the PR → the `develop` preview updates. When a batch is ready to ship, open a
      PR `develop` → `main` to release to production.
+
+> **Heads-up — `gh` CLI and this fork.** This repo is a fork of `fan-ziqi/robot_viewer`, so
+> `gh` commands (PRs, runs, API) default to the **upstream** repo and will silently act on the
+> wrong one. Always pass `-R zorian-f/robot_viewer` (e.g. `gh run list -R zorian-f/robot_viewer`,
+> `gh pr create -R zorian-f/robot_viewer`).
 
 ## Working with Claude Code
 

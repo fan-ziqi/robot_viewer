@@ -121,6 +121,15 @@ export class EndEffector {
         this._recomputeCoM();
     }
 
+    /**
+     * Public hook (BlenderExport calls this right before exporting): re-assert every tool's
+     * attachment to the current flange in case a rebuild raced the panel wiring, so the active
+     * tool is guaranteed to sit inside the exported subtree (only it is visible → only it exports).
+     */
+    reattach() {
+        this._reparentAll();
+    }
+
     // --- load / add / remove --------------------------------------------
     async addFromFile(file) {
         this._status.textContent = `loading ${file.name}…`;

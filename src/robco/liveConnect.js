@@ -179,6 +179,8 @@ export async function connectLiveSession(app, opts) {
                 TcpTrace.ensure({ sm: app.sceneManager, model, teach });
                 const { CameraView } = await import('./CameraView.js');
                 CameraView.ensure({ sm: app.sceneManager, model, teach });
+                const { BlenderExport } = await import('./BlenderExport.js');
+                BlenderExport.ensure({ sm: app.sceneManager, model, teach });
             }
         } catch (e) {
             console.error('[RobCo] teach pendant failed:', e);

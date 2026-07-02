@@ -44,6 +44,7 @@ const PANEL_DEFS = {
     camera:    { title: 'Camera',          icon: 'camera',    dock: 'right', order: 1 },
     waypoints: { title: 'Waypoints',       icon: 'waypoints', dock: 'right', order: 2 },
     stream:    { title: 'Stream Rate',     icon: 'stream',    dock: 'right', order: 3 },
+    blender:   { title: 'Blender Export',  icon: 'blender',   dock: 'right', order: 4 },
     dynamics:  { title: 'Joint Dynamics',  icon: 'dynamics',  dock: 'float', order: 0 },
 };
 
