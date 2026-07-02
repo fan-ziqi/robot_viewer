@@ -4,7 +4,14 @@
  * viewport. Drags that start on an interactive control are ignored so buttons/sliders work.
  *
  * Pass a stable `key` to remember the panel's position across reloads (localStorage).
+ *
+ * When the docking layout is active (default RobCo mode), both entry points hand the
+ * panel over to the DockManager instead: the same key becomes the panel's dock identity,
+ * and free-floating drag/collapse (plus the robco-pos- / robco-collapsed- persistence)
+ * is bypassed entirely. `?chrome=1` keeps the legacy behavior below.
  */
+import { dock } from './dock/DockManager.js';
+
 const POS_PREFIX = 'robco-pos-';
 const COLLAPSE_PREFIX = 'robco-collapsed-';
 
@@ -17,6 +24,10 @@ const COLLAPSE_PREFIX = 'robco-collapsed-';
  * @param {string} key       - stable key (shared with makeDraggable's position key).
  */
 export function makeCollapsible(body, btn, key) {
+    if (dock.enabled) {
+        dock.adoptCollapsible(body, btn, key);
+        return;
+    }
     const apply = (collapsed) => {
         body.style.display = collapsed ? 'none' : 'block';
         btn.textContent = collapsed ? '▸' : '▾';
@@ -58,6 +69,10 @@ function clampPos(left, top) {
 }
 
 export function makeDraggable(el, handle, key) {
+    if (dock.enabled) {
+        dock.adoptPanel(el, handle, key);
+        return;
+    }
     handle.style.cursor = 'move';
     handle.style.userSelect = 'none';
     handle.style.touchAction = 'none';

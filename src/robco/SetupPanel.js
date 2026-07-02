@@ -1,18 +1,21 @@
 /**
  * Setup panel — cell layout controls, in the same draggable/minimizable style as the View
  * and Render panels. Collapsible sections:
- *   Base         : reposition the robot base within the world (numeric + gizmo). [Phase 1]
- *   Scene        : load a background GLB and align it in the world.              [Phase 2]
- *   End-Effector : import a tool GLB, align it, set mass + CoM.                  [Phase 5]
+ *   Base          : reposition the robot base within the world (numeric + gizmo).
+ *   Scene Objects : import background/prop GLBs, align/hide/fade them (SceneObjects.js).
+ *   End-Effector  : import tool GLBs, swap the active one, set mass + CoM (EndEffector.js).
+ *   Material      : import grippable workpiece GLBs (MaterialManager.js).
  *
  * A single shared TransformControls gizmo is reused across sections (only one editable at a
- * time). The Base section drives BaseFrame (worldGroup = inverse(basePose)); the Scene section
- * transforms a GLB parented into the worldGroup.
+ * time, via `_edit`/`_stopEdit` below). The Base section drives BaseFrame directly (worldGroup =
+ * inverse(basePose)); the other sections are self-contained managers that call back into `_edit`
+ * and `addSection` — this file owns only the shared gizmo plumbing and the Base section.
  */
 import * as THREE from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { makeDraggable, makeCollapsible } from './draggable.js';
 import { registerManipulator, activateManipulator, deactivateManipulator } from './manipulators.js';
+import { SceneObjects } from './SceneObjects.js';
 
 const PANEL_CSS =
     'position:fixed;left:16px;top:330px;z-index:3000;width:272px;font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;' +
@@ -22,7 +25,6 @@ const BTN = 'font:600 11px ui-monospace,monospace;color:#e6edf3;background:rgba(
     'border:1px solid rgba(255,255,255,0.15);border-radius:6px;padding:5px 9px;cursor:pointer;';
 const NUM = 'width:46px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);' +
     'border-radius:4px;color:#e6edf3;padding:2px 4px;font:inherit;text-align:right;';
-const SCENE_KEY = 'robco-scene-transform';
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
 
@@ -51,7 +53,6 @@ export class SetupPanel {
     constructor(sm, baseFrame) {
         this.sm = sm;
         this.base = baseFrame;
-        this.scene = null; // loaded GLB group
         this._editing = null; // current gizmo target name
         this._build();
         // Arbiter: another manipulator activating closes this gizmo.
@@ -84,7 +85,8 @@ export class SetupPanel {
 
         body.append(this._buildBaseSection());
         body.append(this._modeBar);
-        body.append(this._buildSceneSection());
+        this.sceneObjects = new SceneObjects(this);
+        body.append(this.sceneObjects.section);
 
         makeCollapsible(body, minBtn, 'setup');
 
@@ -190,177 +192,5 @@ export class SetupPanel {
         const f = this._baseFields;
         const set = (k, v) => { if (f[k]) f[k].value = Math.round(v * 100) / 100; };
         set('x', r.x); set('y', r.y); set('z', r.z); set('rx', r.rx); set('ry', r.ry); set('rz', r.rz);
-    }
-
-    // --- Scene section -------------------------------------------------
-    _buildSceneSection() {
-        const wrap = el('div');
-        wrap.append(sectionTitle('Scene'));
-        this._sceneStatus = el('div', 'font-size:11px;color:#9da7b3;margin-bottom:4px;', 'no scene loaded');
-        wrap.append(this._sceneStatus);
-
-        const fileInput = el('input');
-        fileInput.type = 'file';
-        fileInput.accept = '.glb,.gltf';
-        fileInput.style.display = 'none';
-        fileInput.addEventListener('change', () => {
-            if (fileInput.files?.[0]) this._loadScene(fileInput.files[0]);
-        });
-        wrap.append(fileInput);
-
-        const row1 = el('div', 'display:flex;gap:6px;');
-        const loadBtn = el('button', BTN, 'Load GLB…');
-        loadBtn.addEventListener('click', () => fileInput.click());
-        const editBtn = el('button', BTN, 'Align');
-        editBtn.addEventListener('click', () => {
-            if (!this.scene) return;
-            this._edit('scene', this.scene, ['translate', 'rotate', 'scale'], () => this._onSceneGizmo());
-        });
-        row1.append(loadBtn, editBtn);
-        wrap.append(row1);
-
-        this._sceneFields = {};
-        const triple = (label, keys, step) => {
-            const row = el('div', 'display:flex;align-items:center;gap:4px;margin:3px 0;');
-            row.append(el('span', 'width:34px;opacity:.8;', label));
-            keys.forEach((k) => {
-                const inp = el('input', NUM);
-                inp.type = 'number'; inp.step = String(step);
-                inp.addEventListener('change', () => this._applySceneNumeric());
-                this._sceneFields[k] = inp;
-                row.append(inp);
-            });
-            return row;
-        };
-        const sceneBody = el('div', 'display:none;');
-        sceneBody.append(triple('m', ['px', 'py', 'pz'], 0.1));
-        sceneBody.append(triple('deg', ['rx', 'ry', 'rz'], 15));
-        const scaleRow = el('div', 'display:flex;align-items:center;gap:6px;margin:3px 0;');
-        scaleRow.append(el('span', 'width:34px;opacity:.8;', 'scale'));
-        const scaleIn = el('input', NUM.replace('width:46px', 'width:64px'));
-        scaleIn.type = 'number'; scaleIn.step = '0.05'; scaleIn.value = '1';
-        scaleIn.addEventListener('change', () => this._applySceneNumeric());
-        this._sceneFields.scale = scaleIn;
-        scaleRow.append(scaleIn);
-        sceneBody.append(scaleRow);
-
-        const row2 = el('div', 'display:flex;gap:6px;margin-top:4px;');
-        const yup = el('button', BTN, 'Y-up→Z-up');
-        yup.addEventListener('click', () => this._sceneYupToZup());
-        const reset = el('button', BTN, 'Reset');
-        reset.addEventListener('click', () => this._resetScene());
-        const remove = el('button', BTN, 'Remove');
-        remove.addEventListener('click', () => this._removeScene());
-        row2.append(yup, reset, remove);
-        sceneBody.append(row2);
-        wrap.append(sceneBody);
-        this._sceneBody = sceneBody;
-        return wrap;
-    }
-
-    async _loadScene(file) {
-        this._sceneStatus.textContent = `loading ${file.name}…`;
-        // Read the raw GLB bytes up-front so a session save can embed the background scene.
-        // Assigned only AFTER _removeScene() below, which nulls _sceneBytes/_sceneFileName.
-        let bytes = null;
-        try { bytes = await file.arrayBuffer(); } catch { bytes = null; }
-        const url = URL.createObjectURL(file);
-        try {
-            const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
-            const gltf = await new Promise((res, rej) => new GLTFLoader().load(url, res, undefined, rej));
-            this._removeScene();
-            const g = gltf.scene || gltf;
-            g.name = 'robco-scene';
-            this.scene = g;
-            this.base.attach(g);
-            this._sceneBytes = bytes; // set AFTER _removeScene() above so the bytes survive the save
-            this._sceneFileName = file.name;
-            this._restoreSceneTransform();
-            this._refreshScene();
-            this._sceneBody.style.display = 'block';
-            this._sceneStatus.textContent = `scene: ${file.name}`;
-            this.sm.redraw?.();
-        } catch (e) {
-            console.warn('[RobCo] scene load failed:', e);
-            this._sceneStatus.textContent = `load failed: ${e.message}`;
-        } finally {
-            URL.revokeObjectURL(url);
-        }
-    }
-
-    _onSceneGizmo() {
-        this._refreshScene();
-        this._persistSceneTransform();
-    }
-
-    _applySceneNumeric() {
-        if (!this.scene) return;
-        const f = this._sceneFields;
-        this.scene.position.set(+f.px.value || 0, +f.py.value || 0, +f.pz.value || 0);
-        this.scene.rotation.set((+f.rx.value || 0) * D2R, (+f.ry.value || 0) * D2R, (+f.rz.value || 0) * D2R);
-        const s = +f.scale.value || 1;
-        this.scene.scale.setScalar(s);
-        this._persistSceneTransform();
-        this.sm.redraw?.();
-    }
-
-    _refreshScene() {
-        if (!this.scene) return;
-        const f = this._sceneFields;
-        const p = this.scene.position;
-        const e = new THREE.Euler().setFromQuaternion(this.scene.quaternion, 'XYZ');
-        const r = (v) => Math.round(v * 1000) / 1000;
-        f.px.value = r(p.x); f.py.value = r(p.y); f.pz.value = r(p.z);
-        f.rx.value = Math.round(e.x * R2D); f.ry.value = Math.round(e.y * R2D); f.rz.value = Math.round(e.z * R2D);
-        f.scale.value = r(this.scene.scale.x);
-    }
-
-    _sceneYupToZup() {
-        if (!this.scene) return;
-        this.scene.rotateX(Math.PI / 2);
-        this._refreshScene();
-        this._persistSceneTransform();
-        this.sm.redraw?.();
-    }
-
-    _resetScene() {
-        if (!this.scene) return;
-        this.scene.position.set(0, 0, 0);
-        this.scene.rotation.set(0, 0, 0);
-        this.scene.scale.setScalar(1);
-        this._refreshScene();
-        this._persistSceneTransform();
-        this.sm.redraw?.();
-    }
-
-    _removeScene() {
-        if (this._editing === 'scene') this._stopEdit();
-        if (this.scene) { this.scene.parent?.remove(this.scene); this.scene = null; }
-        this._sceneBytes = null; this._sceneFileName = null;
-        this._sceneBody.style.display = 'none';
-        this._sceneStatus.textContent = 'no scene loaded';
-        this.sm.redraw?.();
-    }
-
-    _persistSceneTransform() {
-        if (!this.scene) return;
-        try {
-            const p = this.scene.position;
-            const e = new THREE.Euler().setFromQuaternion(this.scene.quaternion, 'XYZ');
-            localStorage.setItem(SCENE_KEY, JSON.stringify({
-                pos: [p.x, p.y, p.z], euler: [e.x, e.y, e.z], scale: this.scene.scale.x,
-            }));
-        } catch { /* ignore */ }
-    }
-
-    _restoreSceneTransform() {
-        try {
-            const s = JSON.parse(localStorage.getItem(SCENE_KEY));
-            if (s && this.scene) {
-                this.scene.position.fromArray(s.pos || [0, 0, 0]);
-                this.scene.rotation.set(...(s.euler || [0, 0, 0]));
-                this.scene.scale.setScalar(s.scale || 1);
-            }
-        } catch { /* ignore */ }
     }
 }

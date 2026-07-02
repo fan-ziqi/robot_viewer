@@ -13,6 +13,7 @@
 import { connectLiveSession } from './liveConnect.js';
 import { buildStaticRobco } from './robcoBuild.js';
 import { loadSession, loadToken, loadCreds } from './sessionStore.js';
+import { dock } from './dock/DockManager.js';
 
 // RobCo's public geometry CDN (Access-Control-Allow-Origin: *), no session/auth needed.
 const PUBLIC_MODULES_CDN = 'https://robco.studio/modules';
@@ -51,15 +52,20 @@ function addConnectButton(app) {
     if (window._robcoConnectBtn) return;
     const btn = document.createElement('button');
     btn.textContent = 'Connect RobFlow';
-    btn.style.cssText =
-        'position:fixed;left:16px;top:16px;z-index:3000;font:600 12px ui-monospace,Menlo,Consolas,monospace;' +
-        'color:#e6edf3;background:rgba(13,17,23,0.88);border:1px solid rgba(255,255,255,0.15);' +
-        'border-radius:8px;padding:7px 12px;cursor:pointer;backdrop-filter:blur(6px);';
+    btn.style.cssText = dock.enabled
+        // topbar variant — the DockManager hosts it on the right side of the menu bar
+        ? 'font:600 11px ui-monospace,Menlo,Consolas,monospace;color:#e6edf3;' +
+          'background:rgba(47,129,247,0.18);border:1px solid rgba(47,129,247,0.55);' +
+          'border-radius:6px;padding:6px 11px;cursor:pointer;'
+        : 'position:fixed;left:16px;top:16px;z-index:3000;font:600 12px ui-monospace,Menlo,Consolas,monospace;' +
+          'color:#e6edf3;background:rgba(13,17,23,0.88);border:1px solid rgba(255,255,255,0.15);' +
+          'border-radius:8px;padding:7px 12px;cursor:pointer;backdrop-filter:blur(6px);';
     btn.addEventListener('click', async () => {
         const { openConnectDialog } = await import('./ConnectUI.js');
         openConnectDialog(app);
     });
-    document.body.appendChild(btn);
+    if (dock.enabled) dock.addTopbarWidget(btn);
+    else document.body.appendChild(btn);
     window._robcoConnectBtn = btn;
 }
 
@@ -117,7 +123,10 @@ async function restoreSavedSession(app) {
 export async function maybeLoadRobCo(app) {
     window._robcoApp = app; // referenced by ViewPanel FK-drag to pause the live mirror
     const params = new URLSearchParams(location.search);
-    if (params.get('chrome') !== '1') removeOriginalChrome();
+    if (params.get('chrome') !== '1') {
+        removeOriginalChrome();
+        dock.enable(app); // Photoshop-style docking UI (topbar + sidebars) for the RobCo panels
+    }
     addConnectButton(app);
     addSessionPanel(app);
     if (!params.has('robco')) {

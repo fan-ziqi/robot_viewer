@@ -33,6 +33,8 @@ export class SceneManager {
 
         // Event system
         this._eventListeners = {};
+        // Per-frame hooks, invoked after each rendered frame (e.g. a secondary camera viewport).
+        this._frameHooks = [];
 
         // Camera
         const width = canvas.clientWidth;
@@ -227,8 +229,23 @@ export class SceneManager {
      * back to a plain renderer.render(). Single choke point for all rendering.
      */
     _renderFrame() {
-        if (this.postFX && this.postFX.render()) return;
-        this.renderer.render(this.scene, this.camera);
+        if (!(this.postFX && this.postFX.render())) {
+            this.renderer.render(this.scene, this.camera);
+        }
+        // After the main frame, run per-frame hooks (scene world matrices are now current) — e.g.
+        // the TCP-camera viewport render + its frustum-helper refresh.
+        for (const fn of this._frameHooks) {
+            try { fn(); } catch (e) { console.warn('[RobCo] frame hook:', e); }
+        }
+    }
+
+    /** Register a callback invoked after every rendered frame. Returns an unsubscribe fn. */
+    addFrameHook(fn) {
+        this._frameHooks.push(fn);
+        return () => {
+            const i = this._frameHooks.indexOf(fn);
+            if (i >= 0) this._frameHooks.splice(i, 1);
+        };
     }
 
     // ==================== Model Management ====================

@@ -69,9 +69,16 @@ export async function buildStaticRobco(app, { baseUrl, moduleIds, anglesDeg = nu
             const store = WaypointStore.ensure(app.sceneManager, window._robcoBaseFrame);
             WaypointsPanel.ensure({ app, teach, base: window._robcoBaseFrame, store, client: null });
             const { EndEffector } = await import('./EndEffector.js');
-            EndEffector.ensure({ sm: app.sceneManager, model, teach, setupPanel: window._robcoSetupPanel });
+            const ee = EndEffector.ensure({ sm: app.sceneManager, model, teach, setupPanel: window._robcoSetupPanel });
+            const { MaterialManager } = await import('./MaterialManager.js');
+            MaterialManager.ensure({
+                sm: app.sceneManager, model, teach, setupPanel: window._robcoSetupPanel,
+                endEffector: ee, base: window._robcoBaseFrame,
+            });
             const { TcpTrace } = await import('./TcpTrace.js');
             TcpTrace.ensure({ sm: app.sceneManager, model, teach });
+            const { CameraView } = await import('./CameraView.js');
+            CameraView.ensure({ sm: app.sceneManager, model, teach });
             const { BlenderExport } = await import('./BlenderExport.js');
             BlenderExport.ensure({ sm: app.sceneManager, model, teach });
         }

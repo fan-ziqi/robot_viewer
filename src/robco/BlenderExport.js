@@ -11,9 +11,10 @@
  * GLTFExporter), so we never rename the live scene nodes. Export runs on `model.threeObject`
  * with `onlyVisible:true`, which naturally drops the visibility-gated collision/CoM/frame helpers;
  * the TCP-trace line (the one visible non-robot child of the root) is hidden for the export.
- * A loaded end-effector tool hangs off the flange (a visible child of the robot), so it is
- * included automatically — we just re-assert its attachment first in case a live rebuild
- * orphaned it on a stale model.
+ * The active end-effector tool (and any gripped material riding it) hangs off the flange as a
+ * visible child of the robot, so it exports automatically — its attachment is re-asserted first
+ * in case a live rebuild raced the panel wiring. The TCP camera exports only while its rig is
+ * enabled, landing in Blender as a camera that follows the arm.
  *
  * Up-axis: the viewer keeps the robot in its native Z-up frame (SceneManager.world applies a
  * −90°X rotation purely for display), while glTF is Y-up. By default the export therefore wraps
@@ -221,6 +222,23 @@ export class BlenderExport {
         const traceWasVisible = trace ? trace.visible : false;
         if (trace) trace.visible = false;
 
+        // The TCP camera rides a robot node: export it only while its rig is enabled — a live
+        // rig imports into Blender as a camera ready to render the robot's view; a disabled one
+        // would just leak a stale camera node.
+        const camView = window._robcoCameraView;
+        const cam = camView?.cam || null;
+        const camWasVisible = cam ? cam.visible : true;
+        if (cam && !camView.cfg?.enabled) {
+            cam.visible = false;
+        } else if (cam) {
+            // CameraView drives the camera through cam.matrix alone (matrixAutoUpdate=false), but
+            // exporting with animations forces GLTFExporter into TRS mode, which serializes
+            // position/quaternion/scale and ignores .matrix — sync them or the camera lands in
+            // Blender at the flange origin facing the wrong way. Safe to leave in place: with
+            // matrixAutoUpdate off these properties are otherwise inert.
+            cam.matrix.decompose(cam.position, cam.quaternion, cam.scale);
+        }
+
         // Z-up: reparent the root under a −90°X group for the duration of the export, so the
         // Z-up robot data becomes Y-up per the glTF spec and Blender's importer re-erects it.
         // The wrapper joins sm.scene (same net transform as sm.world's display conversion), so
@@ -264,6 +282,7 @@ export class BlenderExport {
                 prevParent?.updateMatrixWorld(true);
             }
             if (trace) trace.visible = traceWasVisible;
+            if (cam) cam.visible = camWasVisible;
             this._busy = false;
             this._refresh();
         }
@@ -330,7 +349,8 @@ export class BlenderExport {
 
         body.append(el('div', 'font-size:10px;color:#6e7681;margin-top:6px;',
             'Records the arm’s motion (incl. the live stream). Import in Blender: File → Import → glTF 2.0. ' +
-            'Z-up pre-rotates the export so the robot stands upright in Blender; untick to keep the viewer’s native axes.'));
+            'Z-up pre-rotates the export so the robot stands upright in Blender; untick to keep the viewer’s native axes. ' +
+            'The active tool and (while enabled) the TCP camera ride along.'));
 
         makeCollapsible(body, minBtn, 'blender');
         document.body.appendChild(root);
