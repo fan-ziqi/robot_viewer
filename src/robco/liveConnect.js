@@ -172,6 +172,8 @@ export async function connectLiveSession(app, opts) {
                 EndEffector.ensure({ sm: app.sceneManager, model, teach, setupPanel: window._robcoSetupPanel });
                 const { TcpTrace } = await import('./TcpTrace.js');
                 TcpTrace.ensure({ sm: app.sceneManager, model, teach });
+                const { BlenderExport } = await import('./BlenderExport.js');
+                BlenderExport.ensure({ sm: app.sceneManager, model, teach });
             }
         } catch (e) {
             console.error('[RobCo] teach pendant failed:', e);

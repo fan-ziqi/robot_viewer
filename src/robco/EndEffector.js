@@ -54,12 +54,31 @@ export class EndEffector {
 
     update({ sm, model, teach, setupPanel }) {
         if (sm) this.sm = sm;
+        const modelChanged = model && model !== this.model;
         if (model) this.model = model;
         if (teach) this.teach = teach;
         if (setupPanel && setupPanel !== this.setupPanel) {
             this.setupPanel = setupPanel;
             setupPanel.addSection(this._section || this._buildSection());
         }
+        // A live rebuild swaps in a fresh model with brand-new scene nodes; the loaded tool is
+        // still parented to the OLD flange (now off-scene), so move it onto the new flange or it
+        // silently vanishes from both the viewport and the Blender export.
+        if (modelChanged) this.reattach();
+    }
+
+    /**
+     * Re-parent the loaded tool onto the current model's flange. Idempotent and safe to call with
+     * no tool loaded. Uses add() (not attach()) so the flange-local correction transform is kept.
+     */
+    reattach() {
+        if (!this.mount) return;
+        const flange = this._flange();
+        if (!flange || this.mount.parent === flange) return;
+        flange.add(this.mount);
+        this._recomputeCoM();
+        this._applyToolTip();
+        this.sm?.redraw?.();
     }
 
     _flange() {
