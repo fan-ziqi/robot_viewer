@@ -97,6 +97,8 @@ export async function connectLiveSession(app, opts) {
     let rfInertialAt = 0;
     let rfTools = null;       // robot-config tool library (to name the active tool)
     let rfToolsFromWs = false; // a live robotConfig push wins over the one-shot REST fetch
+    let latestIOConfigs = null; // robotConfig.outputs (named IOs) — replayed to a late MaterialManager
+    let latestOutputBanks = null; // last {type:'outputs'} payload — replayed likewise
     let rfActiveToolUuid = null;
     let rfActiveToolName = null;
     let pendingRobotPayload = null; // buffered until the dynamics controller exists
@@ -171,10 +173,13 @@ export async function connectLiveSession(app, opts) {
                 const { EndEffector } = await import('./EndEffector.js');
                 const ee = EndEffector.ensure({ sm: app.sceneManager, model, teach, setupPanel: window._robcoSetupPanel });
                 const { MaterialManager } = await import('./MaterialManager.js');
-                MaterialManager.ensure({
+                const mm = MaterialManager.ensure({
                     sm: app.sceneManager, model, teach, setupPanel: window._robcoSetupPanel,
                     endEffector: ee, base: window._robcoBaseFrame,
                 });
+                // Replay IO state that streamed in before the panel existed.
+                if (latestIOConfigs) mm.setIOConfigs?.(latestIOConfigs);
+                if (latestOutputBanks) mm.onOutputs?.(latestOutputBanks);
                 const { TcpTrace } = await import('./TcpTrace.js');
                 TcpTrace.ensure({ sm: app.sceneManager, model, teach });
                 const { CameraView } = await import('./CameraView.js');
@@ -262,14 +267,34 @@ export async function connectLiveSession(app, opts) {
         rfInertialAt = performance.now();
         rfApply();
     });
-    socket.on('robotConfig', (cfg) => { rfTools = cfg?.tools || []; rfToolsFromWs = true; rfResolveActiveTool(); rfApply(); });
+    socket.on('robotConfig', (cfg) => {
+        rfTools = cfg?.tools || []; rfToolsFromWs = true; rfResolveActiveTool(); rfApply();
+        // Named digital outputs (IOConfig[]) — lets a material bind "Gripper" to its bank/io.
+        latestIOConfigs = cfg?.outputs || [];
+        window._robcoMaterialManager?.setIOConfigs?.(latestIOConfigs);
+    });
     socket.on('tool', (t) => { rfActiveToolUuid = t?.toolUuid || null; rfResolveActiveTool(); rfApply(); });
+
+    // Digital output states — [{bankId, ios:[bool,…]}], broadcast on change (50 ms controller
+    // cycle) + once on connect. Drives material grip/release when a flow's setOutput node fires.
+    socket.on('outputs', (banks) => {
+        latestOutputBanks = banks;
+        window._robcoMaterialManager?.onOutputs?.(banks);
+    });
 
     // Pull the configured tool library once up-front so the active tool can be named in the status
     // even before a `robotConfig` push arrives. Read-only; non-fatal if it fails. A live
     // `robotConfig` push is authoritative, so don't let this late REST result clobber it.
     client.getRobotConfig()
-        .then((cfg) => { if (!rfToolsFromWs) { rfTools = cfg?.tools || []; rfResolveActiveTool(); rfApply(); } })
+        .then((cfg) => {
+            if (!rfToolsFromWs) { rfTools = cfg?.tools || []; rfResolveActiveTool(); rfApply(); }
+            // Named outputs too — a robotConfig WS push may never come in a quiet session, and
+            // without the names the "Gripper" material binding can't resolve. WS stays authoritative.
+            if (latestIOConfigs === null) {
+                latestIOConfigs = cfg?.outputs || [];
+                window._robcoMaterialManager?.setIOConfigs?.(latestIOConfigs);
+            }
+        })
         .catch(() => { /* also delivered via the robotConfig WS message */ });
 
     socket.on('robotState', (d) => panel.setStates({ robotState: d }));

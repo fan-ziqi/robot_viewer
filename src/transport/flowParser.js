@@ -7,6 +7,7 @@
  *   { kind:'move', mode:'cartesian', cartesian:{position:[mm], orientation:[deg]}, name, velocity, acceleration, blendingRadius }
  *   { kind:'delay', seconds }
  *   { kind:'payload', mass:[kg], com:[mm,mm,mm] }
+ *   { kind:'output', bankId, outputId, state, delay:[s] }   (native setOutput node)
  *
  * Pure (no THREE/DOM): the caller computes each move's world-frame marker pose (joint → FK,
  * cartesian → base→world). Execution order is derived by walking start → `out` edges, descending a
@@ -119,6 +120,20 @@ export function parseFlow(flow) {
                 // Flow CoM is in metres (backend Payload model); the viewer's sequence uses mm.
                 const comM = Array.isArray(p.centerOfMass) ? p.centerOfMass : [0, 0, 0];
                 steps.push({ kind: 'payload', mass, com: comM.map((v) => Math.round((Number(v) || 0) * 1000)) });
+                break;
+            }
+            case 'setOutput': {
+                // One node can drive several outputs; flatten to one step each (the builder emits
+                // one node per step, so a round-trip is stable).
+                for (const o of Array.isArray(d.outputs) ? d.outputs : []) {
+                    steps.push({
+                        kind: 'output',
+                        bankId: Math.max(0, Math.round(exprNum(o.bankId, 0))),
+                        outputId: Math.max(0, Math.round(exprNum(o.outputId, 0))),
+                        state: !!o.state,
+                        delay: Math.max(0, exprNum(o.delay, 0)),
+                    });
+                }
                 break;
             }
             default:

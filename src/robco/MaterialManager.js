@@ -6,11 +6,14 @@
  * transform, so the pickup doesn't visually snap, and needs no per-frame code: the object simply
  * becomes part of the flange's scene-graph subtree.
  *
- * The "output" is a named boolean (default "Gripper") standing in for a RobFlow output that in a
- * real cell fires a pneumatic valve. There's no live per-output signal in this codebase yet
- * (liveConnect.js streams payload/tool/robotConfig, not discrete digital outputs), so today it's a
- * manual per-item checkbox — but `setOutput(name, active)` is the same entry point a future live
- * signal handler would call, so wiring the real thing later needs no UI rework.
+ * The "output" is a RobFlow digital output. Binding is by NAME: the material's `outputName`
+ * matches the user-assigned IO name from the robot config (`robotConfig.outputs[]` — IOConfig
+ * {bankId, ioId, name}), or a literal "bank:io" numeric address (e.g. "1:0"). In a live session
+ * the `/robot` WS streams `{type:'outputs', data:[{bankId, ios:[bool,…]}]}` on every output
+ * change (50 ms controller cycle, broadcast on change + initial state on connect); liveConnect
+ * feeds that into `onOutputs()`, so a flow's native `setOutput` node grips/releases the material
+ * exactly when the real (or virtual) valve fires. The manual checkbox stays as the offline /
+ * fixtures fallback, and `setOutput(name, active)` remains the name-based entry point.
  *
  * While gripped, a material's mass (if set) feeds the dynamics as the 'material' payload source
  * (DynamicsController.setPayloadSource), summed alongside 'tcp'/'gripper'/'robot' like a real pickup.
@@ -77,6 +80,8 @@ export class MaterialManager {
         this.setupPanel = setupPanel;
         this.items = []; // { cfg, root, bytes, fileName }
         this.activeId = null;
+        this.ioConfigs = [];   // [{bankId, ioId, name}] from robotConfig.outputs — the name→address map
+        this._lastBanks = null; // latest {type:'outputs'} payload, re-applied when bindings change
         this._loadPersisted();
         if (setupPanel) setupPanel.addSection(this._buildSection());
     }
@@ -144,6 +149,7 @@ export class MaterialManager {
             this.activeId = cfg.id;
             this._persist();
             this._rebuildListUI();
+            this._applyBanks(); // the bound output may already be ON (outputs only broadcast on change)
             this._status.textContent = `material: ${file.name}`;
             this.sm.redraw?.();
         } catch (e) {
@@ -170,6 +176,9 @@ export class MaterialManager {
     // --- grip (the "output" toggle) --------------------------------------
     setGripped(item, on) {
         if (!item || on === item.cfg.gripped) return;
+        // A live output can now grip mid-Align: stop the gizmo edit first (like removeItem does),
+        // or its persist callback would write flange-local coordinates into the world-frame cfg.
+        if (this.setupPanel?._editing === 'material') this.setupPanel._stopEdit();
         if (on) {
             const ap = this.endEffector?.attachPoint?.() || this._flange();
             if (!ap) return; // nothing to attach to yet
@@ -186,12 +195,69 @@ export class MaterialManager {
         this.sm.redraw?.();
     }
 
-    /** Drive the grip toggle by output name — the entry point a future live RobFlow signal reuses. */
+    /** Drive the grip toggle by output name — manual/simulated entry point (offline fallback). */
     setOutput(outputName, active) {
         const name = (outputName || '').trim().toLowerCase();
         if (!name) return;
         for (const it of this.items) {
             if ((it.cfg.outputName || '').trim().toLowerCase() === name) this.setGripped(it, active);
+        }
+    }
+
+    // --- live RobFlow output stream --------------------------------------
+
+    /** Feed the named-IO map from the live robot config (`robotConfig.outputs`: IOConfig[]). */
+    setIOConfigs(ioConfigs) {
+        this.ioConfigs = Array.isArray(ioConfigs) ? ioConfigs : [];
+        this._refreshOutputNames();
+        this._applyBanks(); // names may now resolve to different addresses
+    }
+
+    /**
+     * Feed a live `{type:'outputs'}` WS payload: `[{bankId, ios:[bool,…]}]` (ios indexed by
+     * outputId). The backend broadcasts on change + once on connect, so we cache the latest
+     * snapshot and re-apply it when bindings/materials change between broadcasts.
+     */
+    onOutputs(banks) {
+        if (!Array.isArray(banks)) return;
+        this._lastBanks = banks;
+        this._applyBanks();
+    }
+
+    /** outputName → {bankId, outputId}: a named IOConfig match, else a literal "bank:io" address. */
+    _resolveBinding(outputName) {
+        const raw = (outputName || '').trim();
+        if (!raw) return null;
+        const name = raw.toLowerCase();
+        const cfg = this.ioConfigs.find((c) => (c?.name || '').trim().toLowerCase() === name);
+        if (cfg) return { bankId: cfg.bankId, outputId: cfg.ioId };
+        const m = raw.match(/^(\d+)\s*[:/]\s*(\d+)$/);
+        if (m) return { bankId: +m[1], outputId: +m[2] };
+        return null;
+    }
+
+    _applyBanks() {
+        if (!this._lastBanks) return;
+        for (const it of this.items) {
+            const bind = this._resolveBinding(it.cfg.outputName);
+            if (!bind) continue;
+            const bank = this._lastBanks.find((b) => b?.bankId === bind.bankId);
+            const state = bank?.ios?.[bind.outputId];
+            // setGripped no-ops on unchanged state and refreshes itself on a flip — no trailing
+            // refresh here, or every broadcast would clobber text the user is typing in the panel.
+            if (typeof state === 'boolean') this.setGripped(it, state);
+        }
+    }
+
+    /** Offer the session's named outputs as autocomplete for the output field. */
+    _refreshOutputNames() {
+        if (!this._nameList) return;
+        this._nameList.innerHTML = '';
+        for (const c of this.ioConfigs) {
+            if (!c?.name) continue;
+            const o = el('option');
+            o.value = c.name;
+            this._nameList.append(o);
         }
     }
 
@@ -286,24 +352,30 @@ export class MaterialManager {
         outRow.append(el('span', 'width:52px;opacity:.8;', 'output'));
         this._outIn = el('input', TEXT);
         this._outIn.type = 'text';
+        this._outIn.title = 'RobFlow output this material listens to: a named output from the robot config, or "bank:io" (e.g. "1:0")';
+        this._nameList = el('datalist');
+        this._nameList.id = 'robco-output-names';
+        this._outIn.setAttribute('list', this._nameList.id);
         this._outIn.addEventListener('change', () => {
             const it = this.active; if (!it) return;
             it.cfg.outputName = this._outIn.value || 'Gripper';
             this._persist();
+            this._applyBanks(); // the new binding may already have a live state
         });
-        outRow.append(this._outIn);
+        outRow.append(this._outIn, this._nameList);
         body.append(outRow);
 
         const gripRow = el('label', 'display:flex;align-items:center;gap:8px;margin:4px 0;cursor:pointer;');
         this._gripCb = el('input'); this._gripCb.type = 'checkbox'; this._gripCb.style.accentColor = '#2f81f7';
         this._gripCb.addEventListener('change', () => this.setGripped(this.active, this._gripCb.checked));
-        gripRow.append(this._gripCb, el('span', 'opacity:.9;', 'Gripper output ON (simulated)'));
+        gripRow.append(this._gripCb, el('span', 'opacity:.9;', 'Gripper output ON (manual — live stream overrides)'));
         body.append(gripRow);
 
         wrap.append(body);
         this._body = body;
         this._section = wrap;
         this._rebuildListUI();
+        this._refreshOutputNames(); // ioConfigs may have arrived before the section was built
         return wrap;
     }
 
