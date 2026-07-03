@@ -77,6 +77,15 @@ export async function connectLiveSession(app, opts) {
     const cycleTimer = new CycleTimer({ marker: CYCLE_MARKER });
     socket.on('messages', (data) => cycleTimer.ingest(data, performance.now()));
     app._robcoCycleTimer = cycleTimer;
+
+    // Gripper trigger. Primary: the robot's digital outputs stream ({type:'outputs'} — banks of
+    // booleans); the End-Effector's output field ("bank/io") picks the one that grips. Fallback
+    // for named outputs: flow messageLog entries reading `output:<name>=<1|0>` on `messages`.
+    // Tap (not on()) for messages — on('messages') is single-owner (CycleTimer has it).
+    socket.on('outputs', (data) => window._robcoMaterialManager?.ingestOutputs?.(data));
+    socket.addTap((type, data) => {
+        if (type === 'messages') window._robcoMaterialManager?.ingestMessages?.(data);
+    });
     let model = null;
     let building = false;
     let currentCanonical = null; // canonical module-id list the viewer is currently built for
@@ -262,8 +271,16 @@ export async function connectLiveSession(app, opts) {
         rfInertialAt = performance.now();
         rfApply();
     });
-    socket.on('robotConfig', (cfg) => { rfTools = cfg?.tools || []; rfToolsFromWs = true; rfResolveActiveTool(); rfApply(); });
-    socket.on('tool', (t) => { rfActiveToolUuid = t?.toolUuid || null; rfResolveActiveTool(); rfApply(); });
+    socket.on('robotConfig', (cfg) => {
+        rfTools = cfg?.tools || []; rfToolsFromWs = true; rfResolveActiveTool(); rfApply();
+        // Tool-changer mirror: feed the tool library to the End-Effector's name picker and
+        // apply the current selection (attaches the assigned model / parks on "no tool").
+        window._robcoEndEffector?.onRobflowConfig?.(cfg);
+    });
+    socket.on('tool', (t) => {
+        rfActiveToolUuid = t?.toolUuid || null; rfResolveActiveTool(); rfApply();
+        window._robcoEndEffector?.onRobflowTool?.(t?.toolUuid ?? null);
+    });
 
     // Pull the configured tool library once up-front so the active tool can be named in the status
     // even before a `robotConfig` push arrives. Read-only; non-fatal if it fails. A live

@@ -34,9 +34,6 @@ function el(tag, css, text) {
     if (text != null) e.textContent = text;
     return e;
 }
-function sectionTitle(t) {
-    return el('div', 'font-weight:600;letter-spacing:.04em;opacity:.85;margin:10px 0 5px;text-transform:uppercase;font-size:10px;', t);
-}
 
 export class SetupPanel {
     static ensure(sm, baseFrame) {
@@ -54,6 +51,8 @@ export class SetupPanel {
         this.sm = sm;
         this.base = baseFrame;
         this._editing = null; // current gizmo target name
+        try { this._folds = JSON.parse(localStorage.getItem('robco-setup-folds')) || {}; }
+        catch { this._folds = {}; }
         this._build();
         // Arbiter: another manipulator activating closes this gizmo.
         registerManipulator('setup-gizmo', () => this._stopEdit());
@@ -83,10 +82,10 @@ export class SetupPanel {
         done.addEventListener('click', () => this._stopEdit());
         this._modeBar.append(done);
 
-        body.append(this._buildBaseSection());
-        body.append(this._modeBar);
+        body.append(this._modeBar); // shared gizmo bar on top — visible whichever section edits
+        this.addSection(this._buildBaseSection(), { title: 'Base position (in cell)', key: 'base' });
         this.sceneObjects = new SceneObjects(this);
-        body.append(this.sceneObjects.section);
+        this.addSection(this.sceneObjects.section, { title: 'Scene Objects', key: 'scene-objects' });
 
         makeCollapsible(body, minBtn, 'setup');
 
@@ -95,7 +94,32 @@ export class SetupPanel {
         makeDraggable(root, t, 'setup');
     }
 
-    addSection(node) { this._body.append(node); }
+    /** Append a section. With a title it becomes a fold-able block with a uniform header
+     *  (state persisted per `key`) — this is what keeps the panel structured & sorted:
+     *  Base → Scene Objects → End-Effector → Material (managers add theirs in build order). */
+    addSection(node, meta = {}) {
+        if (!meta.title) { this._body.append(node); return; }
+        const sec = el('div', 'margin:4px 0 0;border-top:1px solid rgba(255,255,255,0.08);padding-top:5px;');
+        const head = el('div', 'display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;');
+        const arrow = el('span', 'font-size:9px;opacity:.7;width:10px;', '▾');
+        head.append(arrow, el('span', 'font-weight:600;letter-spacing:.04em;opacity:.85;text-transform:uppercase;font-size:10px;', meta.title));
+        const bodyWrap = el('div');
+        bodyWrap.append(node);
+        let folded = this._folds[meta.key] === true;
+        const apply = () => {
+            bodyWrap.style.display = folded ? 'none' : 'block';
+            arrow.textContent = folded ? '▸' : '▾';
+        };
+        head.addEventListener('click', () => {
+            folded = !folded;
+            this._folds[meta.key] = folded;
+            try { localStorage.setItem('robco-setup-folds', JSON.stringify(this._folds)); } catch { /* ignore */ }
+            apply();
+        });
+        apply();
+        sec.append(head, bodyWrap);
+        this._body.append(sec);
+    }
 
     // --- shared gizmo --------------------------------------------------
     _ensureGizmo() {
@@ -146,8 +170,7 @@ export class SetupPanel {
     // --- Base section --------------------------------------------------
     _buildBaseSection() {
         const wrap = el('div');
-        wrap.append(sectionTitle('Base position (in cell)'));
-        wrap.append(el('div', 'font-size:10px;color:#6e7681;margin:-2px 0 5px;',
+        wrap.append(el('div', 'font-size:10px;color:#6e7681;margin:2px 0 5px;',
             'Robot stays at origin; the scene + waypoints move so you can test base placements.'));
 
         this._baseFields = {};

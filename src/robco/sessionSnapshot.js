@@ -73,6 +73,43 @@ function asset(bytes, name) {
     return { name: name || 'asset.bin', b64: abToB64(bytes) };
 }
 
+// A material/scene-object import can bundle several files (OBJ + MTL + textures) — embed the
+// main file plus `extras`. Items above the embed cap can't be base64'd; instead their file
+// names are recorded so the restore can re-read them from a remembered folder (dir handles).
+function multiAsset(it) {
+    if (!it.sources?.length) {
+        if (it.bytes) return asset(it.bytes, it.fileName); // item saved by an older build
+        if (it.sourceNames?.length) {
+            console.log(`[RobCo] session save: "${it.fileName}" too large to embed — restore will re-read it from its folder`);
+            return { name: it.fileName, disk: it.sourceNames };
+        }
+        console.warn(`[RobCo] session save: "${it.fileName}" has nothing to embed — re-import after restore`);
+        return null;
+    }
+    const main = it.sources.find((s) => s.name === it.fileName) || it.sources[0];
+    const a = asset(main.bytes, main.name);
+    if (!a) return null;
+    const extras = it.sources.filter((s) => s !== main).map((s) => asset(s.bytes, s.name)).filter(Boolean);
+    if (extras.length) a.extras = extras;
+    return a;
+}
+
+/** Turn a saved asset back into File objects: embedded bytes, or — for over-cap imports —
+ *  the original files re-read from the folders remembered via directory handles. */
+async function filesFromAsset(a) {
+    if (a?.b64) return [b64ToFile(a), ...(a.extras || []).map(b64ToFile)].filter(Boolean);
+    if (a?.disk?.length) {
+        const { hydrateCacheFromStoredDirs, getCachedFileByName } = await import('./objImport.js');
+        await hydrateCacheFromStoredDirs();
+        const files = a.disk.map((n) => getCachedFileByName(n)).filter(Boolean);
+        if (!files.length) {
+            console.warn(`[RobCo] session restore: "${a.name}" was not embedded and its folder isn't accessible — re-import it (📁)`);
+        }
+        return files;
+    }
+    return [];
+}
+
 // ---------------------------------------------------------------------------
 // IndexedDB (single record) — survives reloads, no size quota in practice
 // ---------------------------------------------------------------------------
@@ -175,9 +212,9 @@ export function captureSession(app) {
         },
         localStorage: captureLocalStorage(),
         assets: {
-            endEffectors: (ee?.tools || []).map((t) => asset(t.bytes, t.fileName)).filter(Boolean),
-            materials: (mat?.items || []).map((it) => asset(it.bytes, it.fileName)).filter(Boolean),
-            sceneObjects: (setup?.sceneObjects?.items || []).map((it) => asset(it.bytes, it.fileName)).filter(Boolean),
+            endEffectors: (ee?.tools || []).map((t) => multiAsset(t)).filter(Boolean),
+            materials: (mat?.items || []).map((it) => multiAsset(it)).filter(Boolean),
+            sceneObjects: (setup?.sceneObjects?.items || []).map((it) => multiAsset(it)).filter(Boolean),
             envMap: render?._envSource === 'custom' ? asset(render?._envBytes, render?._envFileName) : null,
         },
     };
@@ -260,20 +297,26 @@ export async function restoreSession(app, session) {
     const A = session.assets || {};
     if (window._robcoEndEffector) {
         for (const a of A.endEffectors || []) {
-            try { await window._robcoEndEffector.addFromFile(b64ToFile(a)); }
-            catch (e) { console.warn('[RobCo] end-effector restore failed:', e); }
+            try {
+                const files = await filesFromAsset(a);
+                if (files.length) await window._robcoEndEffector.addFromFiles(files, { preferMain: a.name });
+            } catch (e) { console.warn('[RobCo] end-effector restore failed:', e); }
         }
     }
     if (window._robcoMaterialManager) {
         for (const a of A.materials || []) {
-            try { await window._robcoMaterialManager.addFromFile(b64ToFile(a)); }
-            catch (e) { console.warn('[RobCo] material restore failed:', e); }
+            try {
+                const files = await filesFromAsset(a);
+                if (files.length) await window._robcoMaterialManager.addFromFiles(files, { preferMain: a.name });
+            } catch (e) { console.warn('[RobCo] material restore failed:', e); }
         }
     }
     if (window._robcoSetupPanel?.sceneObjects) {
         for (const a of A.sceneObjects || []) {
-            try { await window._robcoSetupPanel.sceneObjects.addFromFile(b64ToFile(a)); }
-            catch (e) { console.warn('[RobCo] scene object restore failed:', e); }
+            try {
+                const files = await filesFromAsset(a);
+                if (files.length) await window._robcoSetupPanel.sceneObjects.addFromFiles(files, { preferMain: a.name });
+            } catch (e) { console.warn('[RobCo] scene object restore failed:', e); }
         }
     }
     if (session.env?.source === 'custom' && A.envMap && window._robcoRenderPanel) {
