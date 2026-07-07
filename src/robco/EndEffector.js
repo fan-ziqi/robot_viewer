@@ -283,6 +283,7 @@ export class EndEffector {
     onRobflowTool(uuid) { this._applyRfSelection(uuid ?? null); }
 
     _applyRfSelection(uuid) {
+        this._rfWantUuid = uuid || null; // remember: a later import/assignment may satisfy it
         if (!uuid) { this.toolChange(null); return; } // "no tool" — park whatever we hold
         const name = this._rfTools.find((t) => t.uuid === uuid)?.name;
         if (!name) return; // unknown uuid — the matching robotConfig hasn't arrived yet
@@ -293,6 +294,17 @@ export class EndEffector {
             return;
         }
         this.toolChange(target.cfg.id);
+    }
+
+    /** A tool was imported or (re)assigned: if it is the one the live selection wants, attach
+     *  it. Targeted on purpose — a blind re-apply could park the current tool mid-restore
+     *  while the wanted model hasn't loaded yet. */
+    _resyncRfSelection() {
+        if (!this._rfWantUuid) return;
+        const name = this._rfTools.find((t) => t.uuid === this._rfWantUuid)?.name;
+        if (!name) return;
+        const target = this.tools.find((t) => !t.cfg.isChanger && normName(t.cfg.rfName) === normName(name));
+        if (target && target.cfg.id !== this.attachedId) this.toolChange(target.cfg.id);
     }
 
     _refreshRfDatalist() {
@@ -386,6 +398,7 @@ export class EndEffector {
             window._robcoMaterialManager?.onAttachPointChanged?.();
             this._persist();
             this._rebuildToolsUI();
+            this._resyncRfSelection(); // the live selection may have been waiting for this model
             this.sm.redraw?.();
         } catch (e) {
             console.warn('[RobCo] end-effector load failed:', e);
@@ -597,6 +610,7 @@ export class EndEffector {
             const t = this.edited; if (!t) return;
             t.cfg.rfName = this._rfIn.value.trim();
             this._persist();
+            this._resyncRfSelection(); // assignment may satisfy the live selection right away
         });
         this._rfRow.append(this._rfIn, this._rfDatalist);
         body.append(this._rfRow);

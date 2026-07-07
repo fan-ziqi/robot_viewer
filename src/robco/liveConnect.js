@@ -102,6 +102,9 @@ export async function connectLiveSession(app, opts) {
     let latestOutputBanks = null; // last {type:'outputs'} payload — replayed likewise
     let latestRobotConfig = null; // last robotConfig (WS, or REST in a quiet session) — replayed to a late EndEffector
     let rfToolMsgSeen = false;   // a `tool` message actually arrived (null replay would park the home tool)
+    let liveReplayed = false;    // replay is for the managers' FIRST build only — on later rebuilds they
+                                 // heard every frame live, and re-firing a stale selectedToolUuid would
+                                 // revert a manual tool change (double toolChange, dropped gripped part)
     let rfActiveToolUuid = null;
     let rfActiveToolName = null;
     let pendingRobotPayload = null; // buffered until the dynamics controller exists
@@ -180,14 +183,18 @@ export async function connectLiveSession(app, opts) {
                     sm: app.sceneManager, model, teach, setupPanel: window._robcoSetupPanel,
                     endEffector: ee, base: window._robcoBaseFrame,
                 });
-                // Replay live state that streamed in before the managers existed. Order matters:
-                // the tool library before a tool selection, output names before the bank
-                // snapshot (which only baselines ingestOutputs' edge detector — without it the
-                // first real gripper edge after connect would be swallowed as the baseline).
-                if (latestRobotConfig) ee.onRobflowConfig?.(latestRobotConfig);
-                if (rfToolMsgSeen) ee.onRobflowTool?.(rfActiveToolUuid);
-                if (latestIOConfigs) mm.setIOConfigs?.(latestIOConfigs);
-                if (latestOutputBanks) mm.ingestOutputs?.(latestOutputBanks);
+                // Replay live state that streamed in before the managers existed (first build
+                // only). Order matters: the tool library before a tool selection, output names
+                // before the bank snapshot (which only baselines ingestOutputs' edge detector —
+                // without it the first real gripper edge after connect would be swallowed as
+                // the baseline).
+                if (!liveReplayed) {
+                    liveReplayed = true;
+                    if (latestRobotConfig) ee.onRobflowConfig?.(latestRobotConfig);
+                    if (rfToolMsgSeen) ee.onRobflowTool?.(rfActiveToolUuid);
+                    if (latestIOConfigs) mm.setIOConfigs?.(latestIOConfigs);
+                    if (latestOutputBanks) mm.ingestOutputs?.(latestOutputBanks);
+                }
                 const { TcpTrace } = await import('./TcpTrace.js');
                 TcpTrace.ensure({ sm: app.sceneManager, model, teach });
                 const { CameraView } = await import('./CameraView.js');
@@ -324,10 +331,12 @@ export async function connectLiveSession(app, opts) {
                 window._robcoMaterialManager?.setIOConfigs?.(latestIOConfigs);
             }
             // Seed the End-Effector's tool mirror the same way (library + rfName datalist —
-            // and the current selection, when the config carries one).
+            // and the current selection, when the config carries one). A `tool` message that
+            // beat this REST response couldn't resolve without the library — re-apply it.
             if (!rfToolsFromWs && !latestRobotConfig) {
                 latestRobotConfig = cfg;
                 window._robcoEndEffector?.onRobflowConfig?.(cfg);
+                if (rfToolMsgSeen) window._robcoEndEffector?.onRobflowTool?.(rfActiveToolUuid);
             }
         })
         .catch(() => { /* also delivered via the robotConfig WS message */ });
@@ -342,6 +351,10 @@ export async function connectLiveSession(app, opts) {
         meter.breakGap();
         if (state === 'open') {
             console.log(`[RobCo] WS open: ${redactSid(session.wsUrl)}`);
+            // The connect burst (outputs snapshot + cumulative messageLog) is about to be
+            // re-delivered — drop the gripper's edge/backlog baselines so it is baselined
+            // again, not diffed against pre-disconnect state (a gap edge would grip NOW).
+            window._robcoMaterialManager?.resetLiveBaselines?.();
             // Persist any working cloud session so a reload auto-reconnects to THIS sid.
             // Pass null for the URL so saveSession keeps the human-readable URL the user
             // typed in the dialog (it only updates the SID here).

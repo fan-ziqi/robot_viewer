@@ -505,6 +505,17 @@ export class MaterialManager {
 
     // --- live RobFlow digital outputs -----------------------------------------
     /**
+     * The WS (re)connected: drop the edge/backlog baselines so the next frames re-baseline.
+     * A reconnect re-delivers the outputs snapshot and the cumulative messageLog — connect-time
+     * state must never be acted on (a gripper edge from the disconnect gap would otherwise
+     * grip/release at whatever pose the arm has NOW).
+     */
+    resetLiveBaselines() {
+        this._outState = null;
+        this._msgSeen = null;
+    }
+
+    /**
      * Feed a `{type:'outputs'}` WS payload: `[{bankId, ios:[bool…]}, …]`. The state present in
      * the first frame is baselined (never acted on); afterwards every edge is logged — toggle
      * the gripper in RobCo Studio and the console shows which bank/io it is — and an edge on
