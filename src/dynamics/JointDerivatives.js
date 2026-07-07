@@ -17,9 +17,9 @@ export class JointDerivatives {
      * @param {boolean} [opts.fixedDt=true] - assume a fixed sample interval instead of using
      *   wall-clock arrival time. The stream carries no timestamp and is jittery/batched, so a
      *   fixed Δt removes network/event-loop jitter from the derivatives.
-     * @param {number} [opts.fixedDtMs=62.5] - the assumed interval (62.5 ms = 16 Hz).
+     * @param {number} [opts.fixedDtMs=60] - the assumed interval (60 ms ≈ 16.7 Hz).
      */
-    constructor({ windowSize = 7, minDtMs = 1, fixedDt = true, fixedDtMs = 62.5 } = {}) {
+    constructor({ windowSize = 7, minDtMs = 1, fixedDt = true, fixedDtMs = 60 } = {}) {
         this.windowSize = Math.max(3, windowSize);
         this.minDtMs = minDtMs;
         this.fixedDt = fixedDt;

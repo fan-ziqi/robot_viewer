@@ -165,10 +165,10 @@ export class DynamicsDashboard {
         try {
             const s = JSON.parse(localStorage.getItem('robco-dyn-settings'));
             if (s && typeof s.fixedDt === 'boolean') {
-                return { fixedDt: s.fixedDt, fixedDtMs: s.fixedDtMs > 0 ? s.fixedDtMs : 62.5 };
+                return { fixedDt: s.fixedDt, fixedDtMs: s.fixedDtMs > 0 ? s.fixedDtMs : 60 };
             }
         } catch { /* ignore */ }
-        return { fixedDt: true, fixedDtMs: 62.5 };
+        return { fixedDt: true, fixedDtMs: 60 };
     }
 
     static _saveSettings(s) {
@@ -370,7 +370,7 @@ export class DynamicsDashboard {
             hz.textContent = ms > 0 ? `${(1000 / ms).toFixed(1)} Hz` : '';
         };
         const emit = () => {
-            this.settings = { fixedDt: cb.checked, fixedDtMs: parseFloat(num.value) || 62.5 };
+            this.settings = { fixedDt: cb.checked, fixedDtMs: parseFloat(num.value) || 60 };
             num.disabled = !cb.checked;
             num.style.opacity = cb.checked ? '1' : '.4';
             DynamicsDashboard._saveSettings(this.settings);
