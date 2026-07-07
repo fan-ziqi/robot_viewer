@@ -105,11 +105,34 @@ function payloadNode(id, massKg, comMm, x) {
 }
 
 /**
+ * Native RobFlow digital-output node (schema per an editor export): each entry addresses one
+ * output by bankId + outputId and drives it to `state` after `delay` seconds. The viewer's
+ * MaterialManager listens to the resulting `{type:'outputs'}` WS broadcast to grip/release.
+ */
+function setOutputNode(id, s, x) {
+    return {
+        id, type: 'setOutput', parentNode: null,
+        data: {
+            name: '', valid: true, canBeSaved: true,
+            outputs: [{
+                name: '', uuid: uuid(),
+                delay: Math.max(0, num(s.delay, 0)),
+                state: !!s.state, valid: true,
+                bankId: Math.max(0, Math.round(num(s.bankId, 0))),
+                outputId: Math.max(0, Math.round(num(s.outputId, 0))),
+            }],
+        },
+        position: { x, y: 0 },
+    };
+}
+
+/**
  * Build an importable flow from an ordered step list.
  * @param {string} name
- * @param {Array<{kind:'move'|'delay'|'payload', mode?:'joint'|'cartesian', joints?:number[],
+ * @param {Array<{kind:'move'|'delay'|'payload'|'output', mode?:'joint'|'cartesian', joints?:number[],
  *   cartesian?:{position:number[],orientation:number[]}, name?:string, velocity?:number,
- *   acceleration?:number, blendingRadius?:number, seconds?:number, mass?:number, com?:number[]}>} steps
+ *   acceleration?:number, blendingRadius?:number, seconds?:number, mass?:number, com?:number[],
+ *   bankId?:number, outputId?:number, state?:boolean, delay?:number}>} steps
  * @param {{flowUuid?:string}} [opts] - flowUuid lets a round-trip reuse the loaded flow's id.
  * @returns {{flow:object, flowUuid:string}} flow for POST /flows/import (or PATCH /flows/{uuid}).
  */
@@ -147,6 +170,10 @@ export function buildSequenceFlow(name, steps, opts = {}) {
             i += 1;
         } else if (s.kind === 'payload') {
             nodes.push(payloadNode(`payload-${idx++}`, s.mass ?? 0, s.com ?? [0, 0, 0], x));
+            connect(nodes[nodes.length - 1].id);
+            i += 1;
+        } else if (s.kind === 'output') {
+            nodes.push(setOutputNode(`output-${idx++}`, s, x));
             connect(nodes[nodes.length - 1].id);
             i += 1;
         } else {

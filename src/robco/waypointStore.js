@@ -83,6 +83,18 @@ export class WaypointStore {
         return it;
     }
 
+    /** Digital-output step (native RobFlow setOutput node): drive bank/io to state at this point. */
+    addOutput(bankId = 0, outputId = 0, state = true, delay = 0, index = null) {
+        const it = {
+            id: uid('out'), kind: 'output',
+            bankId: Math.max(0, Math.round(+bankId || 0)), outputId: Math.max(0, Math.round(+outputId || 0)),
+            state: !!state, delay: Math.max(0, +delay || 0),
+        };
+        this._insert(it, index);
+        this._commit();
+        return it;
+    }
+
     /**
      * Replace the whole sequence (e.g. after loading a flow). `specs` are step descriptors; move
      * specs must carry a `worldMatrix` (THREE.Matrix4) for the marker, plus joints and/or cartesian.
@@ -95,6 +107,12 @@ export class WaypointStore {
                 this.items.push({ id: uid('dl'), kind: 'delay', seconds: Math.max(0, +s.seconds || 0) });
             } else if (s.kind === 'payload') {
                 this.items.push({ id: uid('pl'), kind: 'payload', mass: Math.max(0, +s.mass || 0), com: (s.com || [0, 0, 0]).map((v) => +v || 0) });
+            } else if (s.kind === 'output') {
+                this.items.push({
+                    id: uid('out'), kind: 'output',
+                    bankId: Math.max(0, Math.round(+s.bankId || 0)), outputId: Math.max(0, Math.round(+s.outputId || 0)),
+                    state: !!s.state, delay: Math.max(0, +s.delay || 0),
+                });
             } else {
                 this.items.push(this._newMove({
                     name: s.name || `P${this._moveCount() + 1}`,
@@ -313,6 +331,7 @@ export class WaypointStore {
             const data = this.items.map((it) => {
                 if (it.kind === 'delay') return { kind: 'delay', id: it.id, seconds: it.seconds };
                 if (it.kind === 'payload') return { kind: 'payload', id: it.id, mass: it.mass, com: it.com };
+                if (it.kind === 'output') return { kind: 'output', id: it.id, bankId: it.bankId, outputId: it.outputId, state: it.state, delay: it.delay };
                 return {
                     kind: 'move', id: it.id, name: it.name, mode: it.mode,
                     worldPose: it.worldPose, joints: it.joints, cartesian: it.cartesian || null,
@@ -332,6 +351,8 @@ export class WaypointStore {
                 const kind = d.kind || 'move'; // legacy entries had no kind
                 if (kind === 'delay') { const id = d.id || uid('dl'); this._bumpSeq(id); this.items.push({ id, kind: 'delay', seconds: Math.max(0, +d.seconds || 0) }); continue; }
                 if (kind === 'payload') { const id = d.id || uid('pl'); this._bumpSeq(id); this.items.push({ id, kind: 'payload', mass: Math.max(0, +d.mass || 0), com: (d.com || [0, 0, 0]).map((v) => +v || 0) }); continue; }
+                if (kind === 'output') { const id = d.id || uid('out'); this._bumpSeq(id); this.items.push({ id, kind: 'output', bankId: Math.max(0, Math.round(+d.bankId || 0)), outputId: Math.max(0, Math.round(+d.outputId || 0)), state: !!d.state, delay: Math.max(0, +d.delay || 0) }); continue; }
+                if (kind !== 'move') continue; // forward-compat: a kind from a newer build must not become a bogus move row
                 const it = {
                     id: d.id || uid('wp'), kind: 'move', name: d.name, mode: d.mode === 'cartesian' ? 'cartesian' : 'joint',
                     worldPose: d.worldPose || null, joints: d.joints || [], cartesian: d.cartesian || null,

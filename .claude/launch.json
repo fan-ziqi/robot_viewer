@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev",
+      "runtimeExecutable": "corepack",
+      "runtimeArgs": ["pnpm", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "dev-preview",
+      "runtimeExecutable": "corepack",
+      "runtimeArgs": ["pnpm", "dev", "--port", "3010", "--no-open"],
+      "port": 3010,
+      "autoPort": false
+    }
+  ]
+}

@@ -140,7 +140,16 @@ export class WaypointsPanel {
         delayBtn.addEventListener('click', () => { this.store.addDelay(1); this._status.textContent = 'added 1 s delay'; });
         const payBtn = el('button', BTN, '+ payload');
         payBtn.addEventListener('click', () => { this.store.addPayload(0, [0, 0, 0]); this._status.textContent = 'added payload step'; });
-        topRow.append(capBtn, delayBtn, payBtn);
+        const outBtn = el('button', BTN, '+ output');
+        outBtn.title = 'Set a digital output at this point (native RobFlow setOutput node) — e.g. fire the gripper valve';
+        outBtn.addEventListener('click', () => {
+            // default to the gripper's resolved output, so "+ output" fires the valve as-is
+            const gripName = window._robcoEndEffector?.gripOutputName?.();
+            const ref = window._robcoMaterialManager?.resolveOutputRef?.(gripName);
+            this.store.addOutput(ref?.bank ?? 0, ref?.io ?? 0, true);
+            this._status.textContent = 'added output step';
+        });
+        topRow.append(capBtn, delayBtn, payBtn, outBtn);
         body.append(topRow);
         this._count = el('div', 'font-size:11px;color:#9da7b3;margin-bottom:4px;');
         body.append(this._count);
@@ -311,11 +320,12 @@ export class WaypointsPanel {
 
             if (it.kind === 'delay') this._delayRow(row, it);
             else if (it.kind === 'payload') this._payloadRow(row, it);
+            else if (it.kind === 'output') this._outputRow(row, it);
             else this._moveRow(row, it);
 
             this._list.append(row);
         });
-        if (items.length === 0) this._list.append(el('div', 'opacity:.6;font-size:11px;', 'empty — Capture, +delay/+payload, or Load a flow'));
+        if (items.length === 0) this._list.append(el('div', 'opacity:.6;font-size:11px;', 'empty — Capture, +delay/+payload/+output, or Load a flow'));
 
         if (restore?.idx != null) {
             const sel = this._list.querySelector(`[data-idx="${restore.idx}"] [data-field="${restore.field}"]`);
@@ -376,6 +386,26 @@ export class WaypointsPanel {
         const cy = numInput(it.com[1], { w: 34, step: 1, min: -100000, field: 'comy', onChange: setCom });
         const cz = numInput(it.com[2], { w: 34, step: 1, min: -100000, field: 'comz', onChange: setCom });
         row.append(el('span', 'opacity:.6;margin-left:4px;', 'CoM'), cx, cy, cz, el('span', 'opacity:.6;', 'mm'), this._delBtn(it.id));
+    }
+
+    _outputRow(row, it) {
+        row.style.background = 'rgba(137,87,229,0.12)';
+        row.append(el('span', 'flex:0 0 auto;opacity:.85;', '⚡'));
+        const bank = numInput(it.bankId, { w: 34, step: 1, min: 0, field: 'bank', onChange: (i) => this.store.update(it.id, { bankId: Math.max(0, Math.round(+i.value || 0)) }) });
+        bank.title = 'output bank id';
+        const io = numInput(it.outputId, { w: 34, step: 1, min: 0, field: 'io', onChange: (i) => this.store.update(it.id, { outputId: Math.max(0, Math.round(+i.value || 0)) }) });
+        io.title = 'output id within the bank';
+        const state = el('button', BTN + 'padding:2px 8px;flex:0 0 auto;' + (it.state
+            ? 'background:rgba(63,185,80,0.35);border-color:#3fb950;'
+            : ''), it.state ? 'ON' : 'OFF');
+        state.title = 'state this output is driven to';
+        state.draggable = false;
+        state.addEventListener('click', () => this.store.update(it.id, { state: !it.state }));
+        // Resolved name from the live robot config (e.g. "Gripper") — confirms the address is right.
+        const ioConfigs = window._robcoMaterialManager?.ioConfigs || [];
+        const named = ioConfigs.find((c) => c?.bankId === it.bankId && c?.ioId === it.outputId);
+        const name = el('span', 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.6;font-size:10px;', named?.name || '');
+        row.append(el('span', 'opacity:.6;', 'bank'), bank, el('span', 'opacity:.6;', 'io'), io, state, name, this._delBtn(it.id));
     }
 
     _delBtn(id) {
@@ -540,6 +570,7 @@ export class WaypointsPanel {
         for (const it of this.store.items) {
             if (it.kind === 'delay') { steps.push({ kind: 'delay', seconds: it.seconds }); continue; }
             if (it.kind === 'payload') { steps.push({ kind: 'payload', mass: it.mass, com: it.com }); continue; }
+            if (it.kind === 'output') { steps.push({ kind: 'output', bankId: it.bankId, outputId: it.outputId, state: it.state, delay: it.delay }); continue; }
             const common = { name: it.name, velocity: it.velocity, acceleration: it.acceleration, blendingRadius: it.blendingRadius };
             if (it.mode === 'cartesian') {
                 // Loaded cartesian → use its pose verbatim (base-relative truth). Captured → exact
