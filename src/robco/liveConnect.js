@@ -77,6 +77,7 @@ export async function connectLiveSession(app, opts) {
     const cycleTimer = new CycleTimer({ marker: CYCLE_MARKER });
     socket.on('messages', (data) => cycleTimer.ingest(data, performance.now()));
     app._robcoCycleTimer = cycleTimer;
+
     let model = null;
     let building = false;
     let currentCanonical = null; // canonical module-id list the viewer is currently built for
@@ -99,6 +100,8 @@ export async function connectLiveSession(app, opts) {
     let rfToolsFromWs = false; // a live robotConfig push wins over the one-shot REST fetch
     let latestIOConfigs = null; // robotConfig.outputs (named IOs) — replayed to a late MaterialManager
     let latestOutputBanks = null; // last {type:'outputs'} payload — replayed likewise
+    let latestRobotConfig = null; // last robotConfig (WS, or REST in a quiet session) — replayed to a late EndEffector
+    let rfToolMsgSeen = false;   // a `tool` message actually arrived (null replay would park the home tool)
     let rfActiveToolUuid = null;
     let rfActiveToolName = null;
     let pendingRobotPayload = null; // buffered until the dynamics controller exists
@@ -177,9 +180,14 @@ export async function connectLiveSession(app, opts) {
                     sm: app.sceneManager, model, teach, setupPanel: window._robcoSetupPanel,
                     endEffector: ee, base: window._robcoBaseFrame,
                 });
-                // Replay IO state that streamed in before the panel existed.
+                // Replay live state that streamed in before the managers existed. Order matters:
+                // the tool library before a tool selection, output names before the bank
+                // snapshot (which only baselines ingestOutputs' edge detector — without it the
+                // first real gripper edge after connect would be swallowed as the baseline).
+                if (latestRobotConfig) ee.onRobflowConfig?.(latestRobotConfig);
+                if (rfToolMsgSeen) ee.onRobflowTool?.(rfActiveToolUuid);
                 if (latestIOConfigs) mm.setIOConfigs?.(latestIOConfigs);
-                if (latestOutputBanks) mm.onOutputs?.(latestOutputBanks);
+                if (latestOutputBanks) mm.ingestOutputs?.(latestOutputBanks);
                 const { TcpTrace } = await import('./TcpTrace.js');
                 TcpTrace.ensure({ sm: app.sceneManager, model, teach });
                 const { CameraView } = await import('./CameraView.js');
@@ -269,17 +277,38 @@ export async function connectLiveSession(app, opts) {
     });
     socket.on('robotConfig', (cfg) => {
         rfTools = cfg?.tools || []; rfToolsFromWs = true; rfResolveActiveTool(); rfApply();
-        // Named digital outputs (IOConfig[]) — lets a material bind "Gripper" to its bank/io.
-        latestIOConfigs = cfg?.outputs || [];
-        window._robcoMaterialManager?.setIOConfigs?.(latestIOConfigs);
+        // Named digital outputs (IOConfig[]) — lets the gripper output resolve "Gripper" to its
+        // bank/io. Only overwrite when the push actually carries outputs, so a partial config
+        // can't blank the names and block the REST fallback below.
+        if (Array.isArray(cfg?.outputs)) {
+            latestIOConfigs = cfg.outputs;
+            window._robcoMaterialManager?.setIOConfigs?.(latestIOConfigs);
+        }
+        // Tool-changer mirror: feed the tool library to the End-Effector's name picker and
+        // apply the current selection (attaches the assigned model / parks on "no tool").
+        latestRobotConfig = cfg;
+        window._robcoEndEffector?.onRobflowConfig?.(cfg);
     });
-    socket.on('tool', (t) => { rfActiveToolUuid = t?.toolUuid || null; rfResolveActiveTool(); rfApply(); });
+    socket.on('tool', (t) => {
+        rfActiveToolUuid = t?.toolUuid || null; rfToolMsgSeen = true; rfResolveActiveTool(); rfApply();
+        window._robcoEndEffector?.onRobflowTool?.(t?.toolUuid ?? null);
+    });
 
-    // Digital output states — [{bankId, ios:[bool,…]}], broadcast on change (50 ms controller
-    // cycle) + once on connect. Drives material grip/release when a flow's setOutput node fires.
+    // Gripper trigger. Primary: the robot's digital outputs stream ({type:'outputs'} —
+    // [{bankId, ios:[bool,…]}], broadcast on change at the 50 ms controller cycle + once on
+    // connect); an edge on the End-Effector's configured output (a session output name like
+    // "Gripper", or a literal "bank/io") grips/releases — so a flow's setOutput node fires the
+    // viewer gripper at the same cycle point as the real valve. The last payload is cached and
+    // replayed into a MaterialManager built later (its first feed only baselines the edge
+    // detector). Fallback for named outputs the config doesn't list: flow messageLog entries
+    // reading `output:<name>=<1|0>` — via a tap, since on('messages') is single-owner
+    // (CycleTimer has it).
     socket.on('outputs', (banks) => {
         latestOutputBanks = banks;
-        window._robcoMaterialManager?.onOutputs?.(banks);
+        window._robcoMaterialManager?.ingestOutputs?.(banks);
+    });
+    socket.addTap((type, data) => {
+        if (type === 'messages') window._robcoMaterialManager?.ingestMessages?.(data);
     });
 
     // Pull the configured tool library once up-front so the active tool can be named in the status
@@ -289,10 +318,16 @@ export async function connectLiveSession(app, opts) {
         .then((cfg) => {
             if (!rfToolsFromWs) { rfTools = cfg?.tools || []; rfResolveActiveTool(); rfApply(); }
             // Named outputs too — a robotConfig WS push may never come in a quiet session, and
-            // without the names the "Gripper" material binding can't resolve. WS stays authoritative.
-            if (latestIOConfigs === null) {
-                latestIOConfigs = cfg?.outputs || [];
+            // without the names the default "Gripper" output can't resolve. WS stays authoritative.
+            if (latestIOConfigs === null && Array.isArray(cfg?.outputs)) {
+                latestIOConfigs = cfg.outputs;
                 window._robcoMaterialManager?.setIOConfigs?.(latestIOConfigs);
+            }
+            // Seed the End-Effector's tool mirror the same way (library + rfName datalist —
+            // and the current selection, when the config carries one).
+            if (!rfToolsFromWs && !latestRobotConfig) {
+                latestRobotConfig = cfg;
+                window._robcoEndEffector?.onRobflowConfig?.(cfg);
             }
         })
         .catch(() => { /* also delivered via the robotConfig WS message */ });
