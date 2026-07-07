@@ -142,6 +142,20 @@ export class EndEffector {
      *  element while it is ON. All parts share it; there are no per-part outputs. */
     gripOutputName() { return this.gripOutput || 'Gripper'; }
 
+    /** Hint under the output field: where the name resolves to, or how to make it resolve. */
+    _outHintText(name) {
+        const mm = window._robcoMaterialManager;
+        const ref = mm?.resolveOutputRef ? mm.resolveOutputRef(name) : parseOutputRef(name);
+        return ref
+            ? `live: robot output bank ${ref.bank}, io ${ref.io} — ON grips, OFF releases`
+            : `type a session output name (e.g. Gripper) or bank/io (e.g. 1/0) — or log "output:${name}=1|0" in the flow`;
+    }
+
+    /** Named outputs arrived (MaterialManager.setIOConfigs) — the hint may resolve now. */
+    refreshOutputHint() {
+        if (this._outHint) this._outHint.textContent = this._outHintText(this.gripOutput);
+    }
+
     /** Grip point of the CURRENT gripper (mm, relative to attachPoint) — per tool, so every
      *  end-effector keeps its own; the changer's applies when no tool is attached. */
     gripPointMm() {
@@ -511,28 +525,24 @@ export class EndEffector {
 
         // the gripper's output — shared by every MTBH part; the closest one grips while it's ON
         const outRow = el('div', 'display:flex;align-items:center;gap:6px;margin:4px 0 0;');
-        outRow.title = 'The robot output that closes this gripper, as bank/io (e.g. "1/0" = bank 1, output 0). ' +
+        outRow.title = 'The robot output that closes this gripper — a session output name (e.g. "Gripper") ' +
+            'or bank/io (e.g. "1/0" = bank 1, output 0). ' +
             'Toggle the gripper in RobCo Studio and check the console to find yours. ' +
             'For testing without a robot, use the simulated toggle in the Material section.';
         outRow.append(el('span', 'width:46px;opacity:.8;', 'output'));
         this._outIn = el('input', TEXT);
         this._outIn.type = 'text';
         this._outIn.value = this.gripOutput;
+        this._outIn.setAttribute('list', 'robco-output-names'); // session output names (MaterialManager)
         this._outIn.addEventListener('change', () => {
             this.gripOutput = this._outIn.value.trim() || 'Gripper';
             this._outIn.value = this.gripOutput;
-            this._outHint.textContent = outHintText(this.gripOutput);
+            this._outHint.textContent = this._outHintText(this.gripOutput);
             this._persist();
         });
         outRow.append(this._outIn);
         wrap.append(outRow);
-        const outHintText = (name) => {
-            const ref = parseOutputRef(name);
-            return ref
-                ? `live: robot output bank ${ref.bank}, io ${ref.io} — ON grips, OFF releases`
-                : `type bank/io (e.g. 1/0) — or log "output:${name}=1|0" in the flow`;
-        };
-        this._outHint = el('div', HINT, outHintText(this.gripOutput));
+        this._outHint = el('div', HINT, this._outHintText(this.gripOutput));
         wrap.append(this._outHint);
 
         // "no tool" slot: a model that is ALWAYS on the flange (e.g. the tool-changer master)

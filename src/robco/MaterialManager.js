@@ -169,6 +169,7 @@ export class MaterialManager {
     setIOConfigs(ioConfigs) {
         this.ioConfigs = Array.isArray(ioConfigs) ? ioConfigs : [];
         this._refreshOutputNames();
+        window._robcoEndEffector?.refreshOutputHint?.(); // its output field may resolve by name now
     }
 
     /**

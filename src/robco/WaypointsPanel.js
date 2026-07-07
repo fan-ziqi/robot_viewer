@@ -142,7 +142,13 @@ export class WaypointsPanel {
         payBtn.addEventListener('click', () => { this.store.addPayload(0, [0, 0, 0]); this._status.textContent = 'added payload step'; });
         const outBtn = el('button', BTN, '+ output');
         outBtn.title = 'Set a digital output at this point (native RobFlow setOutput node) — e.g. fire the gripper valve';
-        outBtn.addEventListener('click', () => { this.store.addOutput(0, 0, true); this._status.textContent = 'added output step'; });
+        outBtn.addEventListener('click', () => {
+            // default to the gripper's resolved output, so "+ output" fires the valve as-is
+            const gripName = window._robcoEndEffector?.gripOutputName?.();
+            const ref = window._robcoMaterialManager?.resolveOutputRef?.(gripName);
+            this.store.addOutput(ref?.bank ?? 0, ref?.io ?? 0, true);
+            this._status.textContent = 'added output step';
+        });
         topRow.append(capBtn, delayBtn, payBtn, outBtn);
         body.append(topRow);
         this._count = el('div', 'font-size:11px;color:#9da7b3;margin-bottom:4px;');
