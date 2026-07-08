@@ -1,39 +1,36 @@
 /**
- * PathSingularityManager — draws the offline singularity/velocity analysis of the Cartesian (LIN)
- * segments between waypoints, directly in the scene.
+ * PathSingularityManager — the scene half of the Singularity Analysis feature. Steered entirely by
+ * the Singularity Analysis panel (SingularityPanel); does nothing until that panel enables it.
  *
- * For every consecutive move pair whose DESTINATION is a cartesian waypoint (i.e. a straight-line
- * LIN move is actually commanded), it runs scanCartesianPath() and renders:
- *   - a heat-coloured polyline along the straight TCP path (green ok / amber warn / red fault /
- *     purple unreachable), coloured per sample by the controller's σ thresholds;
- *   - a marker + text label at the worst point (closest approach to a singularity), showing the
- *     likely type (wrist / boundary-elbow / shoulder), σ, and the predicted speed;
- *   - an arrow at the worst point along the Cartesian direction the arm can least move (the σ_min
- *     twist), i.e. the lost DOF.
+ * When enabled it scans every LIN segment (consecutive move pair whose DESTINATION is a cartesian
+ * waypoint) with scanCartesianPath and renders, under BaseFrame.worldGroup:
+ *   - a heat-coloured path line (green ok / amber warn / red fault / purple unreachable);
+ *   - a marker + label at the worst point on flagged segments (type guess, σ, predicted speed);
+ *   - an arrow along the lost Cartesian DOF (σ_min twist) at the worst point;
+ *   - a halo on any taught cartesian waypoint whose own configuration sits near a singularity.
+ * Each individual layer can be toggled from the panel.
  *
- * Geometry is authored in WORLD coordinates under BaseFrame.worldGroup (like the waypoint markers),
- * so it tracks base moves. The analysis itself runs in the base/flange frame via teach.kin; σ is
- * tool-offset invariant so a flange scan matches the controller's TCP index.
- *
- * v1 note: with a non-zero tool offset the analyzed flange line and the drawn tool-tip line differ
- * slightly (both are straight, but a rigid offset doesn't commute with slerp); σ is unaffected.
+ * It also computes the analysis DATA and publishes it via `onResults(results)` so the panel can
+ * render per-segment sparklines/badges and per-waypoint flags. σ is tool-offset invariant, so the
+ * flange-frame scan matches the controller's TCP index.
  */
 import * as THREE from 'three';
 import { scanCartesianPath } from '../dynamics/pathSingularity.js';
-import { SINGULARITY_FAULT_INDEX, SINGULARITY_WARN_INDEX } from '../dynamics/singularity.js';
+import { singularityMetrics, classifySingularity } from '../dynamics/singularity.js';
 
-const CLASS_COLOR = {
-    ok: 0x2ea043,
-    warn: 0xe3873a,
-    fault: 0xf85149,
-    unreachable: 0x8957e5,
-};
-const SAMPLES = 21;
+const CLASS_COLOR = { ok: 0x2ea043, warn: 0xe3873a, fault: 0xf85149, unreachable: 0x8957e5 };
 const DEFAULT_DQ_ABS = 6.28; // module max_velocity (rad/s) — uniform default for headroom
-const CART_VEL = 0.25;       // commanded translational speed (m/s), controller manual-mode limit
 const REFRESH_DEBOUNCE_MS = 150;
-
 const D2R = Math.PI / 180;
+
+const DEFAULT_OPTS = {
+    showLine: true,
+    showMarkers: true,
+    showArrows: true,
+    showWaypointFlags: true,
+    samples: 21,
+    cartVel: 0.25, // commanded translational speed (m/s), controller manual-mode limit
+};
 
 export class PathSingularityManager {
     static ensure(opts) {
@@ -51,15 +48,18 @@ export class PathSingularityManager {
         this.base = base;
         this.store = store;
         this.teach = teach;
-        this.enabled = true;
+        this.enabled = false; // steered by the panel; off until then
+        this.opts = { ...DEFAULT_OPTS };
+        this.onResults = null; // (results) => void — panel subscribes to render readouts
         this._timer = null;
+        this.lastResults = { segments: [], waypoints: [] };
 
         this.group = new THREE.Group();
         this.group.name = 'robco-path-singularity';
+        this.group.visible = false;
         base.attach(this.group);
 
         this._wire();
-        this.scheduleRefresh();
     }
 
     update({ base, store, teach } = {}) {
@@ -67,7 +67,7 @@ export class PathSingularityManager {
         if (store) this.store = store;
         if (teach) this.teach = teach;
         this._wire();
-        this.scheduleRefresh();
+        if (this.enabled) this.scheduleRefresh();
     }
 
     /** Decorate the store/base change hooks so an edit or base move re-runs the scan (debounced). */
@@ -84,12 +84,18 @@ export class PathSingularityManager {
         }
     }
 
-    setVisible(on) {
+    setEnabled(on) {
         this.enabled = !!on;
         this.group.visible = this.enabled;
-        if (this.enabled) this.scheduleRefresh(); else this.sm.redraw?.();
+        if (this.enabled) { this._wire(); this.refresh(); }
+        else { this._clear(); this.lastResults = { segments: [], waypoints: [] }; this.onResults?.(this.lastResults); this.sm.redraw?.(); }
     }
-    isVisible() { return this.enabled; }
+    isEnabled() { return this.enabled; }
+
+    setOptions(patch = {}) {
+        this.opts = { ...this.opts, ...patch };
+        if (this.enabled) this.refresh();
+    }
 
     scheduleRefresh() {
         if (!this.enabled) return;
@@ -97,40 +103,73 @@ export class PathSingularityManager {
         this._timer = setTimeout(() => this.refresh(), REFRESH_DEBOUNCE_MS);
     }
 
-    /** Recompute and redraw all cartesian-segment analyses. */
+    /** Recompute the analysis, redraw the enabled scene layers, and publish results to the panel. */
     refresh() {
         this._clear();
-        if (!this.enabled || !this.teach?.kin) return;
+        if (!this.enabled || !this.teach?.kin) {
+            this.lastResults = { segments: [], waypoints: [] };
+            this.onResults?.(this.lastResults);
+            return;
+        }
         const moves = this.store.moves();
         const kin = this.teach.kin;
         const qLower = kin.qLower, qUpper = kin.qUpper;
         const dqAbs = new Array(kin.nq).fill(DEFAULT_DQ_ABS);
 
+        const segments = [];
         for (let i = 1; i < moves.length; i++) {
             const from = moves[i - 1], to = moves[i];
             if (to.mode !== 'cartesian' || !from.worldPose || !to.worldPose) continue;
-
-            const startPose = this._flangePose(from);
-            const endPose = this._flangePose(to);
             const seed = (from.joints && from.joints.length) ? from.joints.map((d) => d * D2R) : undefined;
             let scan;
             try {
-                scan = scanCartesianPath(kin, startPose, endPose, {
-                    seed, samples: SAMPLES, dqAbs, cartVel: CART_VEL, qLower, qUpper,
+                scan = scanCartesianPath(kin, this._flangePose(from), this._flangePose(to), {
+                    seed, samples: this.opts.samples, dqAbs, cartVel: this.opts.cartVel, qLower, qUpper,
                 });
             } catch (e) {
                 console.warn('[RobCo] path singularity scan failed:', e);
                 continue;
             }
             this._drawSegment(from, to, scan);
+            segments.push(this._segmentResult(from, to, scan));
         }
+
+        const waypoints = this._analyzeWaypoints(moves, kin);
+        this.lastResults = { segments, waypoints };
+        this.onResults?.(this.lastResults);
         this.sm.redraw?.();
+    }
+
+    /** Per-waypoint configuration singularity (the taught pose itself), for cartesian moves. */
+    _analyzeWaypoints(moves, kin) {
+        const out = [];
+        for (const m of moves) {
+            if (m.mode !== 'cartesian' || !m.joints || m.joints.length < kin.nq || !m.worldPose) continue;
+            const q = m.joints.map((d) => d * D2R);
+            let metrics;
+            try { metrics = singularityMetrics(kin.jacobian(q)); } catch { continue; }
+            const cls = classifySingularity(metrics.manipulability);
+            out.push({ id: m.id, name: m.name, class: cls, manipulability: metrics.manipulability, reciprocalCondition: metrics.reciprocalCondition });
+            if (this.opts.showWaypointFlags && cls !== 'ok') this._addWaypointHalo(m, cls);
+        }
+        return out;
+    }
+
+    _segmentResult(from, to, scan) {
+        const s = scan.summary;
+        return {
+            from: from.name, to: to.name,
+            worstClass: s.worstClass, worstS: scan.worst.s, worstType: this._type(scan.worst),
+            minManipulability: s.minManipulability, minReciprocalCondition: s.minReciprocalCondition,
+            minSlowdown: s.minSlowdown, maxDqJump: s.maxDqJump,
+            anyBranchFlip: s.anyBranchFlip, anyClamped: s.anyClamped, anyUnreachable: s.anyUnreachable,
+            profile: scan.samples.map((x) => ({ s: x.s, reciprocalCondition: x.reciprocalCondition, manipulability: x.manipulability, class: x.class, slowdown: x.slowdown })),
+        };
     }
 
     /** Base-frame FLANGE pose {pos, mat(row-major 9)} for a move, for the analyzer/IK. */
     _flangePose(move) {
-        const tipBase = this.store.baseMatrix(move);              // base-frame tool tip
-        const flange = this.teach._flangeFromTip(tipBase);        // base-frame flange
+        const flange = this.teach._flangeFromTip(this.store.baseMatrix(move));
         const pos = new THREE.Vector3();
         const quat = new THREE.Quaternion();
         flange.decompose(pos, quat, new THREE.Vector3());
@@ -139,40 +178,38 @@ export class PathSingularityManager {
     }
 
     _drawSegment(from, to, scan) {
-        // Line vertices in WORLD coords: lerp the two waypoints' world tip positions (commutes with
-        // the base transform, so it matches the base-frame analysis sample-for-sample).
         const a = new THREE.Vector3().fromArray(from.worldPose.pos);
         const b = new THREE.Vector3().fromArray(to.worldPose.pos);
         const n = scan.samples.length;
-        const positions = new Float32Array(n * 3);
-        const colors = new Float32Array(n * 3);
-        const col = new THREE.Color();
-        for (let i = 0; i < n; i++) {
-            const s = scan.samples[i].s;
-            const p = a.clone().lerp(b, s);
-            positions[i * 3] = p.x; positions[i * 3 + 1] = p.y; positions[i * 3 + 2] = p.z;
-            col.setHex(CLASS_COLOR[scan.samples[i].class] ?? CLASS_COLOR.ok);
-            colors[i * 3] = col.r; colors[i * 3 + 1] = col.g; colors[i * 3 + 2] = col.b;
-        }
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        const line = new THREE.Line(geo, new THREE.LineBasicMaterial({
-            vertexColors: true, transparent: true, depthTest: false,
-        }));
-        line.renderOrder = 997;
-        this.group.add(line);
 
-        // Only annotate segments that actually approach a singularity or saturate speed.
+        if (this.opts.showLine) {
+            const positions = new Float32Array(n * 3);
+            const colors = new Float32Array(n * 3);
+            const col = new THREE.Color();
+            for (let i = 0; i < n; i++) {
+                const p = a.clone().lerp(b, scan.samples[i].s);
+                positions[i * 3] = p.x; positions[i * 3 + 1] = p.y; positions[i * 3 + 2] = p.z;
+                col.setHex(CLASS_COLOR[scan.samples[i].class] ?? CLASS_COLOR.ok);
+                colors[i * 3] = col.r; colors[i * 3 + 1] = col.g; colors[i * 3 + 2] = col.b;
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthTest: false }));
+            line.renderOrder = 997;
+            this.group.add(line);
+        }
+
         const worst = scan.worst;
         const flagged = scan.summary.worstClass !== 'ok' || (scan.summary.minSlowdown ?? 1) < 0.9;
         if (!flagged) return;
-
         const wp = a.clone().lerp(b, worst.s);
         const cls = worst.class === 'ok' ? 'warn' : worst.class; // speed-only flag → amber
-        this._addWorstMarker(wp, cls);
-        this._addLostArrow(wp, worst.lostDirection, cls);
-        this._addLabel(wp, `${this._type(worst)}  σ=${worst.manipulability.toExponential(1)}  ${Math.round((worst.slowdown ?? 1) * 100)}%`, cls);
+        if (this.opts.showMarkers) {
+            this._addWorstMarker(wp, cls);
+            this._addLabel(wp, `${this._type(worst)}  σ=${worst.manipulability.toExponential(1)}  ${Math.round((worst.slowdown ?? 1) * 100)}%`, cls);
+        }
+        if (this.opts.showArrows) this._addLostArrow(wp, worst.lostDirection, cls);
     }
 
     _addWorstMarker(worldPos, cls) {
@@ -185,12 +222,22 @@ export class PathSingularityManager {
         this.group.add(dot);
     }
 
+    /** Wireframe halo around a taught waypoint whose own configuration is near-singular. */
+    _addWaypointHalo(move, cls) {
+        const halo = new THREE.Mesh(
+            new THREE.SphereGeometry(0.028, 14, 10),
+            new THREE.MeshBasicMaterial({ color: CLASS_COLOR[cls], wireframe: true, transparent: true, opacity: 0.6, depthTest: false }),
+        );
+        halo.position.fromArray(move.worldPose.pos);
+        halo.renderOrder = 998;
+        this.group.add(halo);
+    }
+
     /** Arrow along the lost Cartesian direction (σ_min twist, base frame) at the worst point. */
     _addLostArrow(worldPos, lostDir, cls) {
         const v = new THREE.Vector3(lostDir[0], lostDir[1], lostDir[2]);
         if (v.lengthSq() < 1e-9) return; // lost DOF is purely rotational — nothing to draw as a line
-        // lostDir is base-frame; author it in world coords (worldGroup applies B⁻¹) via the base rotation.
-        v.applyQuaternion(this.base.baseQuat).normalize();
+        v.applyQuaternion(this.base.baseQuat).normalize(); // base-frame dir → world (worldGroup is B⁻¹)
         const arrow = new THREE.ArrowHelper(v, worldPos, 0.09, CLASS_COLOR[cls], 0.03, 0.018);
         arrow.traverse((o) => { if (o.material) { o.material.depthTest = false; o.material.transparent = true; } o.renderOrder = 999; });
         this.group.add(arrow);
@@ -216,8 +263,7 @@ export class PathSingularityManager {
         const tex = new THREE.CanvasTexture(canvas);
         tex.anisotropy = 4;
         const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
-        const scale = 0.0012; // world metres per canvas pixel
-        sprite.scale.set(w * scale, h * scale, 1);
+        sprite.scale.set(w * 0.0012, h * 0.0012, 1);
         sprite.position.copy(worldPos).add(new THREE.Vector3(0, 0, 0.03));
         sprite.renderOrder = 1000;
         sprite.center.set(0, 0);
@@ -225,15 +271,15 @@ export class PathSingularityManager {
     }
 
     /**
-     * Heuristic singularity type from the worst configuration. Structural, so approximate:
+     * Heuristic singularity type from the worst configuration (structural, so approximate):
      * wrist = axes 4∥6 (joint-5 near 0/±180); shoulder = wrist centre near the base vertical axis;
-     * otherwise boundary/elbow (near full reach). Labelled a guess — σ is the authoritative flag.
+     * otherwise boundary/elbow (near full reach). σ is the authoritative flag — this is a label.
      */
     _type(sample) {
         const q = sample.q || [];
         if (q.length >= 6) {
             const j5 = q[4];
-            const foldTo = (a, t) => Math.abs(((a - t + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI);
+            const foldTo = (aa, t) => Math.abs(((aa - t + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI);
             if (foldTo(j5, 0) < 0.26 || foldTo(j5, Math.PI) < 0.26) return 'wrist';
         }
         const [x, y] = sample.pos || [0, 0, 0];
