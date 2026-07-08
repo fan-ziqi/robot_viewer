@@ -8,8 +8,9 @@
  * resolves every gesture to exactly one handle (by priority, then distance), so that can't happen.
  *
  * Handles: 3 translate arrows (X/Y/Z), 3 planar-translate quads (XY/YZ/XZ) and 3 rotate rings
- * (about X/Y/Z). Scale is intentionally omitted (meaningless for a TCP pose). The planar quads
- * ride with the translate set (Move toggle). World space by default (axes = world X/Y/Z); `space`
+ * (about X/Y/Z), each ring carrying 4 clickable 90° snap marks. Scale is intentionally omitted
+ * (meaningless for a TCP pose). The planar quads ride with the translate set (Move toggle); the
+ * snap marks ride with the rotate set. World space by default (axes = world X/Y/Z); `space`
  * can be set to 'local' to align the axes with the target's own frame.
  *
  * Integration: extends Object3D — `scene.add(gizmo)`, `gizmo.attach(target)`. Emits 'change'
@@ -153,6 +154,21 @@ export class TcpGizmo extends THREE.Object3D {
         g.add(ring, picker);
         this._rotateGroup.add(g);
         this._register({ kind: 'rotate', key, axis, priority: 1, mat, picker });
+
+        // Four clickable 90° snap marks around the ring (in its plane). Clicking one sets the
+        // target's rotation ABOUT this axis to that absolute quarter (0/90/180/270) via a
+        // swing-twist decomposition — a discrete click, never a continuous snap while dragging.
+        for (let k = 0; k < 4; k++) {
+            const ang = (k * Math.PI) / 2;
+            const dotMat = visMaterial(COLORS[key]);
+            const dot = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), dotMat);
+            const dotPicker = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), pickerMaterial());
+            dot.position.set(Math.cos(ang) * RING_RADIUS, Math.sin(ang) * RING_RADIUS, 0);
+            dotPicker.position.copy(dot.position);
+            dot.renderOrder = 501; dotPicker.renderOrder = 501; // over the ring line
+            g.add(dot, dotPicker);
+            this._register({ kind: 'snap', key, axis, priority: 4, mat: dotMat, picker: dotPicker, snapAngle: ang });
+        }
     }
 
     _buildPlane(spec) {
@@ -273,7 +289,7 @@ export class TcpGizmo extends THREE.Object3D {
         );
     }
 
-    _partShown(rec) { return rec.kind === 'rotate' ? this.showRotate : this.showTranslate; }
+    _partShown(rec) { return (rec.kind === 'rotate' || rec.kind === 'snap') ? this.showRotate : this.showTranslate; }
 
     /** Raycast all shown pickers; the winner is highest priority, then nearest. */
     _pick() {
@@ -317,6 +333,7 @@ export class TcpGizmo extends THREE.Object3D {
         this._updatePointer(e);
         const hit = this._pick();
         if (!hit) return; // empty space → let OrbitControls handle it
+        if (hit.kind === 'snap') { this._applySnap(hit); return; } // discrete 90° click, no drag
         this._dragging = true;
         this._active = hit;
         this.domElement.setPointerCapture?.(e.pointerId);
@@ -434,6 +451,23 @@ export class TcpGizmo extends THREE.Object3D {
         } else {
             this.object.quaternion.copy(worldQuat);
         }
+    }
+
+    /** Discrete 90° snap: set the target's rotation ABOUT the mark's axis to its absolute quarter. */
+    _applySnap(rec) {
+        const a = (this.space === 'local' && this.object)
+            ? rec.axis.clone().applyQuaternion(this.object.getWorldQuaternion(this._q0)).normalize()
+            : rec.axis.clone();
+        const Q = this.object.getWorldQuaternion(new THREE.Quaternion());
+        // Swing-twist about `a`: twist = the part of Q that rotates about `a`; swing = the rest.
+        const d = Q.x * a.x + Q.y * a.y + Q.z * a.z;
+        const twist = new THREE.Quaternion(a.x * d, a.y * d, a.z * d, Q.w);
+        if (twist.lengthSq() < 1e-8) twist.identity(); else twist.normalize();
+        const swing = Q.clone().multiply(twist.invert());          // swing = Q · twist⁻¹
+        const target = new THREE.Quaternion().setFromAxisAngle(a, rec.snapAngle);
+        this._applyWorldQuaternion(swing.multiply(target));        // world = swing · (90°·k about a)
+        this.dispatchEvent({ type: 'change' });
+        this._redraw?.();
     }
 
     // ---- hover highlight + orbit gating ------------------------------------
