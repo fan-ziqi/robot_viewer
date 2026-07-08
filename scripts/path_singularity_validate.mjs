@@ -83,7 +83,10 @@ function solveIK(tPos, tMat, q0, opts = {}) {
 }
 
 const kin = { nq, fk, jacobian, solveIK };
-const dqAbs = new Array(nq).fill(6.28); // module max_velocity (rad/s)
+// Per-axis velocity limit from each drive descriptor (same extraction MujocoKinematics.dqAbs uses).
+const dqAbs = descs.filter((d) => DRIVE.has(d['module-type']))
+    .map((d) => { const v = d.module_properties?.max_velocity; return Number.isFinite(v) && v > 0 ? v : 6.28; });
+console.log(`per-axis dq_abs (rad/s) from descriptors: [${dqAbs.map((v) => v.toFixed(2)).join(', ')}]`);
 const limits = {
     qLower: new Array(nq).fill(-ROBCO_AXIS_LIMIT_RAD),
     qUpper: new Array(nq).fill(ROBCO_AXIS_LIMIT_RAD),

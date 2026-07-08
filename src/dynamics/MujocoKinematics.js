@@ -14,6 +14,7 @@ import { mjcfFromModules } from './mjcfFromModules.js';
 import { ROBCO_AXIS_LIMIT_RAD } from '../robco/robcoLimits.js';
 
 const DRIVE_TYPES = new Set(['Drive', 'BaseDrive']);
+const DEFAULT_MAX_VELOCITY = 6.28; // rad/s, when a descriptor omits module_properties.max_velocity
 
 export class MujocoKinematics {
     static async create(descriptors, opts = {}) {
@@ -28,6 +29,12 @@ export class MujocoKinematics {
         // RobCo axes all travel ±270° (see robcoLimits.js); clamp IK to the same on every axis.
         this.qLower = drives.map(() => -ROBCO_AXIS_LIMIT_RAD);
         this.qUpper = drives.map(() => ROBCO_AXIS_LIMIT_RAD);
+        // Per-axis velocity limit (rad/s) from each drive's module_properties.max_velocity — used by
+        // the singularity velocity-headroom estimate. Same order as qLower/qUpper (drive order).
+        this.dqAbs = drives.map((d) => {
+            const v = d.module_properties?.max_velocity;
+            return Number.isFinite(v) && v > 0 ? v : DEFAULT_MAX_VELOCITY;
+        });
         try { mj.FS.mkdir('/working'); } catch { /* exists */ }
         try { mj.FS.mount(mj.MEMFS, { root: '.' }, '/working'); } catch { /* mounted */ }
 

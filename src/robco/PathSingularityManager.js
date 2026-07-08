@@ -22,6 +22,7 @@ const CLASS_COLOR = { ok: 0x2ea043, warn: 0xe3873a, fault: 0xf85149, unreachable
 const DEFAULT_DQ_ABS = 6.28; // module max_velocity (rad/s) — uniform default for headroom
 const REFRESH_DEBOUNCE_MS = 150;
 const D2R = Math.PI / 180;
+const SETTINGS_KEY = 'robco-singularity-v1'; // persists enabled + layer/scan options
 
 const DEFAULT_OPTS = {
     showLine: true,
@@ -48,18 +49,28 @@ export class PathSingularityManager {
         this.base = base;
         this.store = store;
         this.teach = teach;
-        this.enabled = false; // steered by the panel; off until then
-        this.opts = { ...DEFAULT_OPTS };
+        // Restore persisted state (default OFF on first run, honouring the panel's default).
+        const saved = this._load();
+        this.enabled = saved?.enabled ?? false;
+        this.opts = { ...DEFAULT_OPTS, ...(saved?.opts || {}) };
         this.onResults = null; // (results) => void — panel subscribes to render readouts
         this._timer = null;
         this.lastResults = { segments: [], waypoints: [] };
 
         this.group = new THREE.Group();
         this.group.name = 'robco-path-singularity';
-        this.group.visible = false;
+        this.group.visible = this.enabled;
         base.attach(this.group);
 
         this._wire();
+        if (this.enabled) this.scheduleRefresh(); // deferred → panel subscribes to onResults first
+    }
+
+    _load() {
+        try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)); } catch { return null; }
+    }
+    _save() {
+        try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ enabled: this.enabled, opts: this.opts })); } catch { /* ignore */ }
     }
 
     update({ base, store, teach } = {}) {
@@ -87,6 +98,7 @@ export class PathSingularityManager {
     setEnabled(on) {
         this.enabled = !!on;
         this.group.visible = this.enabled;
+        this._save();
         if (this.enabled) { this._wire(); this.refresh(); }
         else { this._clear(); this.lastResults = { segments: [], waypoints: [] }; this.onResults?.(this.lastResults); this.sm.redraw?.(); }
     }
@@ -94,6 +106,7 @@ export class PathSingularityManager {
 
     setOptions(patch = {}) {
         this.opts = { ...this.opts, ...patch };
+        this._save();
         if (this.enabled) this.refresh();
     }
 
@@ -114,7 +127,8 @@ export class PathSingularityManager {
         const moves = this.store.moves();
         const kin = this.teach.kin;
         const qLower = kin.qLower, qUpper = kin.qUpper;
-        const dqAbs = new Array(kin.nq).fill(DEFAULT_DQ_ABS);
+        // Per-axis speed limits from the module descriptors (falls back to a uniform nominal value).
+        const dqAbs = (kin.dqAbs && kin.dqAbs.length === kin.nq) ? kin.dqAbs : new Array(kin.nq).fill(DEFAULT_DQ_ABS);
 
         const segments = [];
         for (let i = 1; i < moves.length; i++) {
