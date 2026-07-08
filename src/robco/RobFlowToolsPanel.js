@@ -1,7 +1,7 @@
 /**
  * RobFlow Tools panel — consolidated control surface (inspired by RobFlowLink):
  *   • Status  — WebSocket ● + API ● + decoded robot / operation / safety state.
- *   • Teach   — gizmo on/off, Move/Rotate, IK readout, Send (velocity/accel/approach), Stop.
+ *   • Teach   — gizmo on/off, Move/Rotate handle toggles, IK readout, Send (velocity/accel/approach), Stop.
  *   • Control — Enable (operational), Stop, global-speed.
  *
  * Drives the TeachPendant gizmo engine and a RobFlowClient. Sections that need a robot
@@ -60,7 +60,7 @@ export class RobFlowToolsPanel {
             // onIk fires on a gizmo drag (the TCP moved) — show the new IK readout and drop any
             // configuration list, which was enumerated for the previous TCP and is now stale.
             teach.onIk = (res) => { this._setIk(res); this._clearPoses(); };
-            teach.onModeChange = (m) => this._setMode(m);
+            teach.onPartsChange = (p) => this._setParts(p);
             // Keep the Teach button in sync when the arbiter turns the gizmo off.
             teach.onEnabledChange = (on) => this._teachVisible(on);
             if (this.client) this._buildJogRows(teach.jointNames);
@@ -142,8 +142,8 @@ export class RobFlowToolsPanel {
         root.append(this._posesBox);
 
         this._teachBtn.addEventListener('click', () => this._toggleTeach());
-        this._moveBtn.addEventListener('click', () => this.teach?.setMode('translate'));
-        this._rotBtn.addEventListener('click', () => this.teach?.setMode('rotate'));
+        this._moveBtn.addEventListener('click', () => this.teach?.toggleTranslate());
+        this._rotBtn.addEventListener('click', () => this.teach?.toggleRotate());
         this._findBtn.addEventListener('click', () => this._findPoses());
 
         // --- Send (needs client) ---
@@ -398,11 +398,12 @@ export class RobFlowToolsPanel {
         const on = !this.teach.enabled;
         this.teach.setEnabled(on);
         this._teachVisible(on);
-        if (on) this._setMode(this.teach.mode);
+        if (on) this._setParts({ translate: this.teach.showTranslate, rotate: this.teach.showRotate });
     }
-    _setMode(mode) {
-        this._moveBtn.style.background = mode === 'translate' ? '#1f6feb' : 'rgba(255,255,255,0.06)';
-        this._rotBtn.style.background = mode === 'rotate' ? '#1f6feb' : 'rgba(255,255,255,0.06)';
+    // Highlight each toggle independently — both lit (the default) = the combined gizmo.
+    _setParts(p) {
+        this._moveBtn.style.background = p.translate ? '#1f6feb' : 'rgba(255,255,255,0.06)';
+        this._rotBtn.style.background = p.rotate ? '#1f6feb' : 'rgba(255,255,255,0.06)';
     }
     _setIk(res) {
         this._ik.textContent = res.converged

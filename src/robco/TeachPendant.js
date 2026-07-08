@@ -5,8 +5,10 @@
  * the model root -> full 6-DOF DLS IK (MujocoKinematics) -> joint angles applied so the arm
  * follows. UI (buttons, send, status) lives in RobFlowToolsPanel, which drives this engine.
  *
- * Modes: 'translate' / 'rotate' (all 3 axes). While enabled it sets app._teachActive so the
- * live WS mirror pauses (no fight with drags).
+ * Combined gizmo: translate arrows + rotate rings shown together (two TransformControls on one
+ * target, each picking only its own handles). The Move/Rotate toggles (or W/E keys) hide either
+ * set; at least one always stays live. While enabled it sets app._teachActive so the live WS
+ * mirror pauses (no fight with drags).
  */
 import * as THREE from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -71,7 +73,9 @@ export class TeachPendant {
         this.sm = app.sceneManager;
         this.jointNames = model.userData.jointOrder;
         this.enabled = false;
-        this.mode = 'translate';
+        // Combined gizmo: both handle sets shown by default. Toggles can hide either, never both.
+        this.showTranslate = true;
+        this.showRotate = true;
         this.onIk = null; // (res) => void
         this.toolOffset = null; // Matrix4 flange→tool-tip when a tool defines the TCP, else null
 
@@ -79,22 +83,30 @@ export class TeachPendant {
         this._setTargetToTcp();
         this.sm.scene.add(this.target);
 
-        const tc = new TransformControls(this.sm.camera, this.sm.renderer.domElement);
-        tc.setMode('translate');
-        tc.setSpace('world');
-        tc.setSize(0.8);
-        tc.addEventListener('dragging-changed', (e) => { this.sm.controls.enabled = !e.value; });
-        tc.addEventListener('objectChange', () => this._onDrag());
-        tc.attach(this.target);
-        tc.visible = false;
-        tc.enabled = false;
-        this.sm.scene.add(tc);
-        this.tc = tc;
+        // Two TransformControls on the SAME target — a translate set and a rotate set drawn
+        // together. Each only raycasts its own handles, so they coexist without fighting for the
+        // pointer; the rotate rings sit a touch larger than the arrows to keep the hit-areas apart.
+        const mkTc = (mode, size) => {
+            const tc = new TransformControls(this.sm.camera, this.sm.renderer.domElement);
+            tc.setMode(mode);
+            tc.setSpace('world');
+            tc.setSize(size);
+            tc.addEventListener('dragging-changed', (e) => { this.sm.controls.enabled = !e.value; });
+            tc.addEventListener('objectChange', () => this._onDrag());
+            tc.attach(this.target);
+            tc.visible = false;
+            tc.enabled = false;
+            this.sm.scene.add(tc);
+            return tc;
+        };
+        this.tcTranslate = mkTc('translate', 0.8);
+        this.tcRotate = mkTc('rotate', 1.0);
+        this.tcs = [this.tcTranslate, this.tcRotate];
 
         this._onKey = (e) => {
             if (!this.enabled) return;
-            if (e.key === 'w' || e.key === 'W') this.setMode('translate');
-            else if (e.key === 'e' || e.key === 'E') this.setMode('rotate');
+            if (e.key === 'w' || e.key === 'W') this.toggleTranslate();
+            else if (e.key === 'e' || e.key === 'E') this.toggleRotate();
         };
 
         // Arbiter: another manipulator activating turns this gizmo off.
@@ -384,17 +396,33 @@ export class TeachPendant {
         return { deg: res.q.map((r) => (r * 180) / Math.PI), converged: res.converged, posErr: res.posErr };
     }
 
-    setMode(mode) {
-        this.mode = mode;
-        this.tc.setMode(mode);
-        this.onModeChange?.(mode);
+    /**
+     * Show/hide the two handle sets of the combined gizmo. At least one set always stays live so
+     * the gizmo can't vanish. Both on (the default) = the combined translate+rotate gizmo.
+     */
+    setParts(showTranslate, showRotate) {
+        this.showTranslate = showTranslate;
+        this.showRotate = showRotate;
+        if (!this.showTranslate && !this.showRotate) this.showTranslate = true; // never both off
+        this._applyPartVisibility();
+        this.onPartsChange?.({ translate: this.showTranslate, rotate: this.showRotate });
+    }
+
+    toggleTranslate() { this.setParts(!this.showTranslate, this.showRotate); }
+    toggleRotate() { this.setParts(this.showTranslate, !this.showRotate); }
+
+    /** Mirror enabled + per-part visibility onto both TransformControls. */
+    _applyPartVisibility() {
+        this.tcTranslate.visible = this.enabled && this.showTranslate;
+        this.tcTranslate.enabled = this.enabled && this.showTranslate;
+        this.tcRotate.visible = this.enabled && this.showRotate;
+        this.tcRotate.enabled = this.enabled && this.showRotate;
     }
 
     setEnabled(on) {
         this.enabled = on;
         this.app._teachActive = on;
-        this.tc.visible = on;
-        this.tc.enabled = on;
+        this._applyPartVisibility();
         if (on) {
             activateManipulator('teach'); // turn off the Setup gizmo / FK drag
             this._setTargetToTcp();
@@ -408,9 +436,11 @@ export class TeachPendant {
 
     dispose() {
         window.removeEventListener('keydown', this._onKey);
-        this.tc?.detach();
-        this.tc?.dispose?.();
-        this.tc?.parent?.remove(this.tc);
+        for (const tc of this.tcs || []) {
+            tc.detach();
+            tc.dispose?.();
+            tc.parent?.remove(tc);
+        }
         this.target?.parent?.remove(this.target);
         this.kin?.dispose();
     }
