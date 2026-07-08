@@ -8,9 +8,10 @@
  * resolves every gesture to exactly one handle (by priority, then distance), so that can't happen.
  *
  * Handles: 3 translate arrows (X/Y/Z), 3 planar-translate quads (XY/YZ/XZ) and 3 rotate rings
- * (about X/Y/Z), each ring carrying 4 clickable 90° snap marks. Scale is intentionally omitted
- * (meaningless for a TCP pose). The planar quads ride with the translate set (Move toggle); the
- * snap marks ride with the rotate set. World space by default (axes = world X/Y/Z); `space`
+ * (about X/Y/Z), plus 3 "align" dots (one next to each plane) that snap the rotation about that
+ * plane's normal to the nearest 90°. Scale is intentionally omitted (meaningless for a TCP pose).
+ * The planar quads ride with the translate set (Move toggle); the align dots ride with the rotate
+ * set (they change orientation). World space by default (axes = world X/Y/Z); `space`
  * can be set to 'local' to align the axes with the target's own frame.
  *
  * Integration: extends Object3D — `scene.add(gizmo)`, `gizmo.attach(target)`. Emits 'change'
@@ -37,6 +38,7 @@ const ROTATION_SPEED = 20;  // drag-pixels → radians sensitivity (matches thre
 // Planar-translate handles: a small quad in each coordinate plane, coloured by its normal axis.
 const PLANE_OFFSET = 0.34;  // quad centre offset from the origin, into the +/+ quadrant
 const PLANE_HALF = 0.15;    // quad half-extent
+const ALIGN_OFFSET = 0.55;  // "align to plane" dot, just outside the plane quad on the diagonal
 const PLANES = [
     { key: 'XY', normal: 'Z', u: 'X', v: 'Y' },
     { key: 'YZ', normal: 'X', u: 'Y', v: 'Z' },
@@ -154,21 +156,6 @@ export class TcpGizmo extends THREE.Object3D {
         g.add(ring, picker);
         this._rotateGroup.add(g);
         this._register({ kind: 'rotate', key, axis, priority: 1, mat, picker });
-
-        // Four clickable 90° snap marks around the ring (in its plane). Clicking one sets the
-        // target's rotation ABOUT this axis to that absolute quarter (0/90/180/270) via a
-        // swing-twist decomposition — a discrete click, never a continuous snap while dragging.
-        for (let k = 0; k < 4; k++) {
-            const ang = (k * Math.PI) / 2;
-            const dotMat = visMaterial(COLORS[key]);
-            const dot = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), dotMat);
-            const dotPicker = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), pickerMaterial());
-            dot.position.set(Math.cos(ang) * RING_RADIUS, Math.sin(ang) * RING_RADIUS, 0);
-            dotPicker.position.copy(dot.position);
-            dot.renderOrder = 501; dotPicker.renderOrder = 501; // over the ring line
-            g.add(dot, dotPicker);
-            this._register({ kind: 'snap', key, axis, priority: 4, mat: dotMat, picker: dotPicker, snapAngle: ang });
-        }
     }
 
     _buildPlane(spec) {
@@ -183,6 +170,18 @@ export class TcpGizmo extends THREE.Object3D {
         g.add(quad, picker);
         this._translateGroup.add(g); // planar handles ride with the translate set (Move toggle)
         this._register({ kind: 'plane', key: spec.key, axis: normal, priority: 3, mat, picker });
+
+        // "Align" dot next to this plane — a rotation tool: clicking snaps the target's rotation
+        // about the plane's normal to the nearest 90°, squaring the object to that plane. It rides
+        // with the rotate set (it changes orientation) and sits just outside the plane quad.
+        const dotMat = visMaterial(COLORS[spec.normal]);
+        const dot = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), dotMat);
+        const dotPicker = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), pickerMaterial());
+        dot.position.copy(AXIS[spec.u]).add(AXIS[spec.v]).multiplyScalar(ALIGN_OFFSET);
+        dotPicker.position.copy(dot.position);
+        dot.renderOrder = 501; dotPicker.renderOrder = 501;
+        this._rotateGroup.add(dot, dotPicker);
+        this._register({ kind: 'snap', key: spec.key, axis: normal, priority: 4, mat: dotMat, picker: dotPicker });
     }
 
     _register(rec) {
@@ -453,19 +452,21 @@ export class TcpGizmo extends THREE.Object3D {
         }
     }
 
-    /** Discrete 90° snap: set the target's rotation ABOUT the mark's axis to its absolute quarter. */
+    /** "Align to plane": snap the target's rotation about `rec.axis` (the plane normal) to the NEAREST 90°. */
     _applySnap(rec) {
         const a = (this.space === 'local' && this.object)
             ? rec.axis.clone().applyQuaternion(this.object.getWorldQuaternion(this._q0)).normalize()
             : rec.axis.clone();
         const Q = this.object.getWorldQuaternion(new THREE.Quaternion());
-        // Swing-twist about `a`: twist = the part of Q that rotates about `a`; swing = the rest.
+        // Swing-twist about `a`: keep the swing, snap the twist angle to the nearest 90°.
         const d = Q.x * a.x + Q.y * a.y + Q.z * a.z;
         const twist = new THREE.Quaternion(a.x * d, a.y * d, a.z * d, Q.w);
         if (twist.lengthSq() < 1e-8) twist.identity(); else twist.normalize();
         const swing = Q.clone().multiply(twist.invert());          // swing = Q · twist⁻¹
-        const target = new THREE.Quaternion().setFromAxisAngle(a, rec.snapAngle);
-        this._applyWorldQuaternion(swing.multiply(target));        // world = swing · (90°·k about a)
+        const theta = 2 * Math.atan2(d, Q.w);                      // signed twist angle about a
+        const snapped = Math.round(theta / (Math.PI / 2)) * (Math.PI / 2);
+        const target = new THREE.Quaternion().setFromAxisAngle(a, snapped);
+        this._applyWorldQuaternion(swing.multiply(target));        // world = swing · (nearest 90° about a)
         this.dispatchEvent({ type: 'change' });
         this._redraw?.();
     }
