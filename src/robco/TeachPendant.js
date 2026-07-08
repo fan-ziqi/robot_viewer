@@ -5,13 +5,13 @@
  * the model root -> full 6-DOF DLS IK (MujocoKinematics) -> joint angles applied so the arm
  * follows. UI (buttons, send, status) lives in RobFlowToolsPanel, which drives this engine.
  *
- * Combined gizmo: translate arrows + rotate rings shown together (two TransformControls on one
- * target, each picking only its own handles). The Move/Rotate toggles (or W/E keys) hide either
- * set; at least one always stays live. While enabled it sets app._teachActive so the live WS
- * mirror pauses (no fight with drags).
+ * Combined gizmo: translate arrows + rotate rings shown together via a custom single-raycaster
+ * gizmo (see TcpGizmo) — one gesture = one handle, so translate and rotate never fire together.
+ * The Move/Rotate toggles (or W/E keys) hide either set; at least one always stays live. While
+ * enabled it sets app._teachActive so the live WS mirror pauses (no fight with drags).
  */
 import * as THREE from 'three';
-import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { TcpGizmo } from './TcpGizmo.js';
 import { MujocoKinematics } from '../dynamics/MujocoKinematics.js';
 import { ROBCO_AXIS_LIMIT_DEG } from './robcoLimits.js';
 import { registerManipulator, activateManipulator } from './manipulators.js';
@@ -83,25 +83,18 @@ export class TeachPendant {
         this._setTargetToTcp();
         this.sm.scene.add(this.target);
 
-        // Two TransformControls on the SAME target — a translate set and a rotate set drawn
-        // together. Each only raycasts its own handles, so they coexist without fighting for the
-        // pointer; the rotate rings sit a touch larger than the arrows to keep the hit-areas apart.
-        const mkTc = (mode, size) => {
-            const tc = new TransformControls(this.sm.camera, this.sm.renderer.domElement);
-            tc.setMode(mode);
-            tc.setSpace('world');
-            tc.setSize(size);
-            tc.addEventListener('dragging-changed', (e) => { this.sm.controls.enabled = !e.value; });
-            tc.addEventListener('objectChange', () => this._onDrag());
-            tc.attach(this.target);
-            tc.visible = false;
-            tc.enabled = false;
-            this.sm.scene.add(tc);
-            return tc;
-        };
-        this.tcTranslate = mkTc('translate', 0.8);
-        this.tcRotate = mkTc('rotate', 1.0);
-        this.tcs = [this.tcTranslate, this.tcRotate];
+        // Combined translate+rotate gizmo (custom, single raycaster — see TcpGizmo). 'change'
+        // fires once per transform → run IK; the gizmo disables OrbitControls itself while a
+        // handle is hovered/dragged, and repaints through the on-demand redraw.
+        this.gizmo = new TcpGizmo({
+            camera: this.sm.camera,
+            domElement: this.sm.renderer.domElement,
+            orbit: this.sm.controls,
+            redraw: () => this.sm.redraw?.(),
+        });
+        this.gizmo.attach(this.target);
+        this.gizmo.addEventListener('change', () => this._onDrag());
+        this.sm.scene.add(this.gizmo);
 
         this._onKey = (e) => {
             if (!this.enabled) return;
@@ -401,28 +394,20 @@ export class TeachPendant {
      * the gizmo can't vanish. Both on (the default) = the combined translate+rotate gizmo.
      */
     setParts(showTranslate, showRotate) {
-        this.showTranslate = showTranslate;
-        this.showRotate = showRotate;
-        if (!this.showTranslate && !this.showRotate) this.showTranslate = true; // never both off
-        this._applyPartVisibility();
+        this.gizmo.setParts(showTranslate, showRotate);
+        // Read back the gizmo's clamped state (it never lets both sets turn off).
+        this.showTranslate = this.gizmo.showTranslate;
+        this.showRotate = this.gizmo.showRotate;
         this.onPartsChange?.({ translate: this.showTranslate, rotate: this.showRotate });
     }
 
     toggleTranslate() { this.setParts(!this.showTranslate, this.showRotate); }
     toggleRotate() { this.setParts(this.showTranslate, !this.showRotate); }
 
-    /** Mirror enabled + per-part visibility onto both TransformControls. */
-    _applyPartVisibility() {
-        this.tcTranslate.visible = this.enabled && this.showTranslate;
-        this.tcTranslate.enabled = this.enabled && this.showTranslate;
-        this.tcRotate.visible = this.enabled && this.showRotate;
-        this.tcRotate.enabled = this.enabled && this.showRotate;
-    }
-
     setEnabled(on) {
         this.enabled = on;
         this.app._teachActive = on;
-        this._applyPartVisibility();
+        this.gizmo.setEnabled(on);
         if (on) {
             activateManipulator('teach'); // turn off the Setup gizmo / FK drag
             this._setTargetToTcp();
@@ -436,11 +421,8 @@ export class TeachPendant {
 
     dispose() {
         window.removeEventListener('keydown', this._onKey);
-        for (const tc of this.tcs || []) {
-            tc.detach();
-            tc.dispose?.();
-            tc.parent?.remove(tc);
-        }
+        this.gizmo?.dispose();
+        if (this.sm?.controls) this.sm.controls.enabled = true; // never leave orbit disabled on teardown
         this.target?.parent?.remove(this.target);
         this.kin?.dispose();
     }
