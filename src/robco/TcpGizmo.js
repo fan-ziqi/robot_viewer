@@ -7,8 +7,9 @@
  * rotate and fires the change twice. This gizmo uses ONE raycaster and ONE pointer pipeline that
  * resolves every gesture to exactly one handle (by priority, then distance), so that can't happen.
  *
- * Handles: 3 translate arrows (X/Y/Z) + 3 rotate rings (about X/Y/Z). Scale is intentionally
- * omitted (meaningless for a TCP pose). World space by default (axes = world X/Y/Z); `space`
+ * Handles: 3 translate arrows (X/Y/Z), 3 planar-translate quads (XY/YZ/XZ) and 3 rotate rings
+ * (about X/Y/Z). Scale is intentionally omitted (meaningless for a TCP pose). The planar quads
+ * ride with the translate set (Move toggle). World space by default (axes = world X/Y/Z); `space`
  * can be set to 'local' to align the axes with the target's own frame.
  *
  * Integration: extends Object3D — `scene.add(gizmo)`, `gizmo.attach(target)`. Emits 'change'
@@ -32,6 +33,15 @@ const RING_RADIUS = 1.2;   // rings sit outside the arrow tips (~0.9) so hit-are
 const ARROW_LEN = 0.9;
 const ROTATION_SPEED = 20;  // drag-pixels → radians sensitivity (matches three's TransformControls)
 
+// Planar-translate handles: a small quad in each coordinate plane, coloured by its normal axis.
+const PLANE_OFFSET = 0.34;  // quad centre offset from the origin, into the +/+ quadrant
+const PLANE_HALF = 0.15;    // quad half-extent
+const PLANES = [
+    { key: 'XY', normal: 'Z', u: 'X', v: 'Y' },
+    { key: 'YZ', normal: 'X', u: 'Y', v: 'Z' },
+    { key: 'XZ', normal: 'Y', u: 'X', v: 'Z' },
+];
+
 function visMaterial(color) {
     return new THREE.MeshBasicMaterial({
         color, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false,
@@ -41,7 +51,15 @@ function visMaterial(color) {
 // Picker meshes must be raycastable but never rendered: object.visible stays true (the raycaster
 // includes it) while material.visible is false (the renderer skips it).
 function pickerMaterial() {
-    return new THREE.MeshBasicMaterial({ visible: false });
+    // DoubleSide so the flat plane pickers are hittable from either face.
+    return new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide });
+}
+// Filled translucent quad for a planar-translate handle.
+function planeMaterial(color) {
+    return new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity: 0.35, depthTest: false, depthWrite: false,
+        toneMapped: false, side: THREE.DoubleSide,
+    });
 }
 
 export class TcpGizmo extends THREE.Object3D {
@@ -85,6 +103,7 @@ export class TcpGizmo extends THREE.Object3D {
         this._dragAxis = new THREE.Vector3();
         this._tmp = new THREE.Vector3();
         this._camPos = new THREE.Vector3();
+        this._q0 = new THREE.Quaternion(); // scratch for local-space plane-normal in _pick
 
         this._translateGroup = new THREE.Group();
         this._rotateGroup = new THREE.Group();
@@ -103,6 +122,7 @@ export class TcpGizmo extends THREE.Object3D {
             this._buildArrow(key);
             this._buildRing(key);
         }
+        for (const spec of PLANES) this._buildPlane(spec);
     }
 
     _buildArrow(key) {
@@ -136,8 +156,22 @@ export class TcpGizmo extends THREE.Object3D {
         this._register({ kind: 'rotate', key, axis, priority: 1, mat, picker });
     }
 
+    _buildPlane(spec) {
+        const normal = AXIS[spec.normal];
+        const mat = planeMaterial(COLORS[spec.normal]);
+        const quad = new THREE.Mesh(new THREE.PlaneGeometry(PLANE_HALF * 2, PLANE_HALF * 2), mat);
+        const picker = new THREE.Mesh(new THREE.PlaneGeometry(PLANE_HALF * 2.4, PLANE_HALF * 2.4), pickerMaterial());
+        const g = new THREE.Group();
+        g.position.copy(AXIS[spec.u]).add(AXIS[spec.v]).multiplyScalar(PLANE_OFFSET); // corner of the plane
+        g.quaternion.setFromUnitVectors(UNIT_Z, normal); // PlaneGeometry (+Z normal) → the plane normal
+        [quad, picker].forEach((m) => { m.renderOrder = 500; });
+        g.add(quad, picker);
+        this._translateGroup.add(g); // planar handles ride with the translate set (Move toggle)
+        this._register({ kind: 'plane', key: spec.key, axis: normal, priority: 3, mat, picker });
+    }
+
     _register(rec) {
-        rec.baseColor = COLORS[rec.key];
+        rec.baseColor = rec.mat.color.getHex(); // works for arrows/rings AND multi-axis plane keys
         rec.picker.userData.record = rec;
         this._records.push(rec);
         this._pickers.push(rec.picker);
@@ -238,14 +272,26 @@ export class TcpGizmo extends THREE.Object3D {
         );
     }
 
-    _partShown(rec) { return rec.kind === 'translate' ? this.showTranslate : this.showRotate; }
+    _partShown(rec) { return rec.kind === 'rotate' ? this.showRotate : this.showTranslate; }
 
     /** Raycast all shown pickers; the winner is highest priority, then nearest. */
     _pick() {
         const active = this._pickers.filter((p) => this._partShown(p.userData.record));
         if (!active.length) return null;
         this._raycaster.setFromCamera(this._ptr, this.camera);
-        const hits = this._raycaster.intersectObjects(active, false);
+        let hits = this._raycaster.intersectObjects(active, false);
+        if (!hits.length) return null;
+        // Drop plane handles seen too edge-on — they're near-invisible slivers there and dragging in
+        // a grazing plane is ill-conditioned; let the click fall through to orbit instead.
+        const viewDir = this._raycaster.ray.direction;
+        hits = hits.filter((h) => {
+            const r = h.object.userData.record;
+            if (r.kind !== 'plane') return true;
+            const n = this.space === 'local' && this.object
+                ? r.axis.clone().applyQuaternion(this.object.getWorldQuaternion(this._q0))
+                : r.axis;
+            return Math.abs(viewDir.dot(n)) > 0.15;
+        });
         if (!hits.length) return null;
         hits.sort((a, b) =>
             (b.object.userData.record.priority - a.object.userData.record.priority)
@@ -320,6 +366,11 @@ export class TcpGizmo extends THREE.Object3D {
             this._plane.setFromNormalAndCoplanarPoint(n.lengthSq() < 1e-9 ? UNIT_Z : n.normalize(), origin);
             return;
         }
+        if (rec.kind === 'plane') {
+            // Planar translate: drag within the handle's own plane (normal = the plane normal).
+            this._plane.setFromNormalAndCoplanarPoint(axis, origin);
+            return;
+        }
         // Translate-axis: the drag plane contains the axis and faces the camera as much as possible
         // (normal = the view direction with its along-axis component removed).
         const eye = this._tmp.copy(this._camPos).sub(origin).normalize();
@@ -337,6 +388,10 @@ export class TcpGizmo extends THREE.Object3D {
         if (this._active.kind === 'translate') {
             const offset = now.clone().sub(this._startHit).dot(axis);
             const world = this._startWorldPos.clone().addScaledVector(axis, offset);
+            this._applyWorldPosition(world);
+        } else if (this._active.kind === 'plane') {
+            // Both points lie on the drag plane, so their delta is already in-plane → apply directly.
+            const world = this._startWorldPos.clone().add(now.clone().sub(this._startHit));
             this._applyWorldPosition(world);
         } else {
             // Rotation on the camera-facing plane (see _setupPlane): project the drag onto the ring's
