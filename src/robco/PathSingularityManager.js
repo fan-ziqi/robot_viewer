@@ -24,13 +24,18 @@ const REFRESH_DEBOUNCE_MS = 150;
 const D2R = Math.PI / 180;
 const SETTINGS_KEY = 'robco-singularity-v1'; // persists enabled + layer/scan options
 
+// Controller Cartesian velocity caps a waypoint velocity fraction of 1.0 reaches, from robcontrol
+// global_properties.hpp (soft limits). A LIN move commands velocity_fraction × these.
+const X_VEL_LIMIT = 1.0; // dx_abs_limit (m/s), translational
+const O_VEL_LIMIT = 1.0; // w_abs_limit (rad/s), rotational
+
 const DEFAULT_OPTS = {
     showLine: true,
     showMarkers: true,
     showArrows: true,
     showWaypointFlags: true,
     samples: 21,
-    cartVel: 0.25, // commanded translational speed (m/s), controller manual-mode limit
+    speedScale: 1.0, // RobFlow global speed / online velocity override (0..1); multiplies each waypoint's velocity
 };
 
 export class PathSingularityManager {
@@ -135,17 +140,21 @@ export class PathSingularityManager {
             const from = moves[i - 1], to = moves[i];
             if (to.mode !== 'cartesian' || !from.worldPose || !to.worldPose) continue;
             const seed = (from.joints && from.joints.length) ? from.joints.map((d) => d * D2R) : undefined;
+            // Commanded speed = destination waypoint's velocity fraction × global speed scale × caps.
+            const velFrac = Math.max(0.001, Math.min(1, (to.velocity ?? 1) * this.opts.speedScale));
+            const cartVel = velFrac * X_VEL_LIMIT;
+            const rotVel = velFrac * O_VEL_LIMIT;
             let scan;
             try {
                 scan = scanCartesianPath(kin, this._flangePose(from), this._flangePose(to), {
-                    seed, samples: this.opts.samples, dqAbs, cartVel: this.opts.cartVel, qLower, qUpper,
+                    seed, samples: this.opts.samples, dqAbs, cartVel, rotVel, qLower, qUpper,
                 });
             } catch (e) {
                 console.warn('[RobCo] path singularity scan failed:', e);
                 continue;
             }
             this._drawSegment(from, to, scan);
-            segments.push(this._segmentResult(from, to, scan));
+            segments.push(this._segmentResult(from, to, scan, cartVel));
         }
 
         const waypoints = this._analyzeWaypoints(moves, kin);
@@ -169,10 +178,10 @@ export class PathSingularityManager {
         return out;
     }
 
-    _segmentResult(from, to, scan) {
+    _segmentResult(from, to, scan, cartVel) {
         const s = scan.summary;
         return {
-            from: from.name, to: to.name,
+            from: from.name, to: to.name, commandedSpeed: cartVel,
             worstClass: s.worstClass, worstS: scan.worst.s, worstType: this._type(scan.worst),
             minManipulability: s.minManipulability, minReciprocalCondition: s.minReciprocalCondition,
             minSlowdown: s.minSlowdown, maxDqJump: s.maxDqJump,

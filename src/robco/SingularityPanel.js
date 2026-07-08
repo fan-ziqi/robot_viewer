@@ -70,7 +70,7 @@ export class SingularityPanel {
         if (!this.manager || !this._enableCb) return;
         this._enableCb.checked = this.manager.enabled;
         for (const [k, cb] of Object.entries(this._layerCbs)) cb.checked = !!this.manager.opts[k];
-        if (this._speed) this._speed.value = String(this.manager.opts.cartVel);
+        if (this._speed) this._speed.value = String(this.manager.opts.speedScale);
         if (this._samples) this._samples.value = String(this.manager.opts.samples);
         this._setControlsEnabled(this.manager.enabled);
     }
@@ -113,11 +113,13 @@ export class SingularityPanel {
         // Settings.
         body.append(title('Settings'));
         const speedRow = el('div', 'display:flex;align-items:center;justify-content:space-between;margin:3px 0;');
-        speedRow.append(el('span', 'opacity:.9;', 'Commanded speed (m/s)'));
-        this._speed = el('input', NUM); this._speed.type = 'number'; this._speed.min = '0.01'; this._speed.step = '0.05'; this._speed.value = '0.25';
-        this._speed.addEventListener('change', () => this.manager?.setOptions({ cartVel: Math.max(0.01, +this._speed.value || 0.25) }));
+        speedRow.append(el('span', 'opacity:.9;', 'Global speed scale ×'));
+        this._speed = el('input', NUM); this._speed.type = 'number'; this._speed.min = '0.05'; this._speed.max = '1'; this._speed.step = '0.05'; this._speed.value = '1';
+        this._speed.addEventListener('change', () => this.manager?.setOptions({ speedScale: Math.min(1, Math.max(0.05, +this._speed.value || 1)) }));
         speedRow.append(this._speed);
         body.append(speedRow);
+        body.append(el('div', 'font-size:10px;color:#8b98a5;margin:0 0 2px;',
+            'Each segment’s speed = its waypoint velocity × this scale × 1.0 m/s (mirrors RobFlow’s global speed).'));
         this._gated.push(this._speed);
 
         const sampRow = el('div', 'display:flex;align-items:center;justify-content:space-between;margin:3px 0;');
@@ -202,7 +204,7 @@ export class SingularityPanel {
 
         card.append(this._sparkline(s.profile));
 
-        const bits = [];
+        const bits = [`cmd ${s.commandedSpeed.toFixed(2)} m/s`];
         if (s.worstClass !== 'ok') bits.push(`${s.worstType} · σ≥${s.minManipulability.toExponential(1)}`);
         else bits.push(`min 1/κ ${s.minReciprocalCondition.toFixed(3)}`);
         if (s.anyBranchFlip) bits.push('branch flip');

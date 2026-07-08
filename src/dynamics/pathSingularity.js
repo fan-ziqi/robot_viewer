@@ -21,7 +21,6 @@ import { singularityMetrics, classifySingularity } from './singularity.js';
 const sub = (a, b) => a.map((v, i) => v - b[i]);
 const dot = (a, b) => a.reduce((s, v, i) => s + v * b[i], 0);
 const norm = (a) => Math.sqrt(dot(a, a));
-const scale = (a, k) => a.map((v) => v * k);
 
 /** Rotation vector (axis·angle, world frame) of the rotation taking 3×3 A to B (row-major 9). */
 function rotVecBetween(A, B) {
@@ -149,21 +148,20 @@ export function scanCartesianPath(kin, startPose, endPose, opts = {}) {
     const qEnd = matToQuat(endPose.mat);
 
     // Commanded twist ξ is CONSTANT along a straight lerp+slerp path (position is linear, slerp is
-    // constant angular velocity), so compute it once. Translation sets the timing; rotation follows.
+    // constant angular velocity), so compute it once. The segment duration is set by whichever axis
+    // BINDS — translation at cartVel or rotation at rotVel — matching the controller, which scales
+    // both the translational and rotational velocity caps by the same waypoint velocity fraction and
+    // runs the slower to completion. (Trapezoidal accel ramp ignored; cruise dominates the estimate.)
     const dPos = sub(endPose.pos, startPose.pos);
     const transLen = norm(dPos);
     const rotVecTotal = rotVecBetween(startPose.mat, endPose.mat);
     const rotLen = norm(rotVecTotal);
-    let twist;
-    if (transLen > 1e-6) {
-        const t = transLen / cartVel; // segment duration at commanded translational speed
-        twist = scale(dPos, cartVel / transLen).concat(scale(rotVecTotal, rotLen > 0 ? 1 / t : 0));
-    } else if (rotLen > 1e-9) {
-        const t = rotLen / rotVel; // pure reorientation
-        twist = [0, 0, 0].concat(scale(rotVecTotal, 1 / t));
-    } else {
-        twist = [0, 0, 0, 0, 0, 0]; // degenerate: start == end
-    }
+    const tTrans = transLen > 1e-9 ? transLen / cartVel : 0;
+    const tRot = rotLen > 1e-9 ? rotLen / rotVel : 0;
+    const T = Math.max(tTrans, tRot);
+    const twist = T > 0
+        ? [dPos[0] / T, dPos[1] / T, dPos[2] / T, rotVecTotal[0] / T, rotVecTotal[1] / T, rotVecTotal[2] / T]
+        : [0, 0, 0, 0, 0, 0]; // degenerate: start == end
 
     const samples = [];
     let prevQ = seed0;
