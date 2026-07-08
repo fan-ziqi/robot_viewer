@@ -12,7 +12,7 @@
  */
 import { connectLiveSession } from './liveConnect.js';
 import { buildStaticRobco } from './robcoBuild.js';
-import { loadSession, loadToken, loadCreds } from './sessionStore.js';
+import { saveSession, saveToken, loadSession, loadToken, loadCreds } from './sessionStore.js';
 import { dock } from './dock/DockManager.js';
 
 // RobCo's public geometry CDN (Access-Control-Allow-Origin: *), no session/auth needed.
@@ -150,12 +150,38 @@ export async function maybeLoadRobCo(app) {
 
     // --- Live modes -------------------------------------------------------
     if (mode === 'session') {
+        // Hand-off from the session-clipper extension: ?robco=session&sid=&token= (bare SID +
+        // Cognito id token). Consume it into browser storage, then reconnect the same way a
+        // reload does — including the editor login — so the clipper lands us in CONTROL, not
+        // view-only.
         const sid = params.get('sid');
         if (!sid) return console.error('[RobCo] ?robco=session requires &sid=<SID>');
+        // Prefer the URL token; fall back to a token still in sessionStorage (a refreshed
+        // clipper URL may have dropped &token=). undefined => view-only.
+        const token = params.get('token') || loadToken() || undefined;
+        const modulesBase = params.get('base') || undefined;
+        const creds = loadCreds(); // editor creds persist in localStorage across the handoff
+        // Persist the handed-over session IMMEDIATELY so a refresh keeps the new sid+token even
+        // if the socket never opens (liveConnect re-saves on WS open — idempotent). saveSession
+        // keeps any human-readable URL from a prior dialog connect; saveToken no-ops on falsy.
+        saveSession(null, sid);
+        saveToken(token);
+        // Drop the one-shot handoff params: a later F5 then falls through to restoreSavedSession
+        // (re-derives a FRESH SID from the saved token + re-does the editor login, instead of
+        // reconnecting to the now-stale URL SID), and the raw JWT leaves the address bar/history.
+        // Guarded so a hypothetical replaceState failure can't block the connect below.
+        try {
+            history.replaceState(null, '', location.pathname + location.hash);
+        } catch (e) {
+            console.warn('[RobCo] could not strip handoff params from the URL:', e);
+        }
+        // Pass the stored editor creds so flow push/save (control) is restored on this new SID.
         return connectLiveSession(app, {
             sid,
-            token: params.get('token') || undefined,
-            modulesBase: params.get('base') || undefined,
+            token,
+            modulesBase,
+            username: creds?.username,
+            password: creds?.password,
         });
     }
     if (mode === 'local') {
