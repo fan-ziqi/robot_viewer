@@ -6,13 +6,15 @@
  *   End-Effector  : import tool GLBs, swap the active one, set mass + CoM (EndEffector.js).
  *   Material      : import grippable workpiece GLBs (MaterialManager.js).
  *
- * A single shared TransformControls gizmo is reused across sections (only one editable at a
- * time, via `_edit`/`_stopEdit` below). The Base section drives BaseFrame directly (worldGroup =
- * inverse(basePose)); the other sections are self-contained managers that call back into `_edit`
- * and `addSection` — this file owns only the shared gizmo plumbing and the Base section.
+ * A single shared TcpGizmo (the same combined translate+rotate gizmo the teach pendant uses) is
+ * reused across sections (only one editable at a time, via `_edit`/`_stopEdit` below). The Base
+ * section drives BaseFrame directly (worldGroup = inverse(basePose)); the other sections are
+ * self-contained managers that call back into `_edit` and `addSection` — this file owns only the
+ * shared gizmo plumbing and the Base section. Scale (Scene Objects / Materials) is set via their
+ * numeric fields, not the gizmo.
  */
 import * as THREE from 'three';
-import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { TcpGizmo } from './TcpGizmo.js';
 import { makeDraggable, makeCollapsible } from './draggable.js';
 import { registerManipulator, activateManipulator, deactivateManipulator } from './manipulators.js';
 import { SceneObjects } from './SceneObjects.js';
@@ -69,18 +71,16 @@ export class SetupPanel {
         root.append(body);
         this._body = body;
 
-        // shared gizmo mode bar
+        // shared gizmo bar: toggle either handle set of the combined gizmo, then Done.
         this._modeBar = el('div', 'display:none;gap:6px;margin:4px 0;align-items:center;');
         this._modeBar.append(el('span', 'opacity:.7;', 'gizmo:'));
-        ['translate', 'rotate', 'scale'].forEach((m) => {
-            const b = el('button', BTN, m === 'translate' ? 'move' : m === 'rotate' ? 'rot' : 'scale');
-            b.dataset.mode = m;
-            b.addEventListener('click', () => this._setMode(m));
-            this._modeBar.append(b);
-        });
+        this._moveBtn = el('button', BTN, 'move');
+        this._rotBtn = el('button', BTN, 'rot');
+        this._moveBtn.addEventListener('click', () => this._togglePart('translate'));
+        this._rotBtn.addEventListener('click', () => this._togglePart('rotate'));
         const done = el('button', BTN, 'done');
         done.addEventListener('click', () => this._stopEdit());
-        this._modeBar.append(done);
+        this._modeBar.append(this._moveBtn, this._rotBtn, done);
 
         body.append(this._modeBar); // shared gizmo bar on top — visible whichever section edits
         this.addSection(this._buildBaseSection(), { title: 'Base position (in cell)', key: 'base' });
@@ -124,11 +124,13 @@ export class SetupPanel {
     // --- shared gizmo --------------------------------------------------
     _ensureGizmo() {
         if (this._tc) return this._tc;
-        const tc = new TransformControls(this.sm.camera, this.sm.renderer.domElement);
-        tc.setSpace('world');
-        tc.setSize(0.7);
-        tc.addEventListener('dragging-changed', (e) => { this.sm.controls.enabled = !e.value; });
-        tc.addEventListener('objectChange', () => { this._onGizmo?.(); });
+        const tc = new TcpGizmo({
+            camera: this.sm.camera,
+            domElement: this.sm.renderer.domElement,
+            orbit: this.sm.controls,      // the gizmo disables orbit itself while hovering/dragging
+            redraw: () => this.sm.redraw?.(),
+        });
+        tc.addEventListener('change', () => { this._onGizmo?.(); });
         this.sm.scene.add(tc);
         this._tc = tc;
         return tc;
@@ -138,22 +140,21 @@ export class SetupPanel {
         activateManipulator('setup-gizmo'); // turn off teach gizmo / FK drag
         const tc = this._ensureGizmo();
         tc.attach(target);
-        tc.setMode(modes[0]);
-        tc.visible = true;
-        tc.enabled = true;
+        // The combined gizmo covers translate + rotate; a 'scale' mode (Scene Objects / Materials)
+        // is handled by their numeric fields, not the gizmo. Show whichever of move/rot this target allows.
+        this._allowTranslate = modes.includes('translate');
+        this._allowRotate = modes.includes('rotate');
+        tc.setParts(this._allowTranslate, this._allowRotate);
+        tc.setEnabled(true);
         this._editing = name;
         this._onGizmo = onChange;
-        this._allowedModes = modes;
         this._modeBar.style.display = 'flex';
-        // dim mode buttons not allowed for this target (e.g. base has no scale)
-        [...this._modeBar.querySelectorAll('button[data-mode]')].forEach((b) => {
-            b.style.opacity = modes.includes(b.dataset.mode) ? '1' : '0.3';
-        });
+        this._setPartsUI();
         this.sm.redraw?.();
     }
 
     _stopEdit() {
-        if (this._tc) { this._tc.visible = false; this._tc.enabled = false; this._tc.detach(); }
+        if (this._tc) this._tc.setEnabled(false);
         this._editing = null;
         this._onGizmo = null;
         this._modeBar.style.display = 'none';
@@ -162,9 +163,26 @@ export class SetupPanel {
         this.sm.redraw?.();
     }
 
-    _setMode(m) {
-        if (this._allowedModes && !this._allowedModes.includes(m)) return;
-        this._tc?.setMode(m);
+    /** Toggle one handle set of the combined gizmo (respecting what this target allows). */
+    _togglePart(part) {
+        if (!this._tc) return;
+        let showT = this._tc.showTranslate;
+        let showR = this._tc.showRotate;
+        if (part === 'translate' && this._allowTranslate) showT = !showT;
+        if (part === 'rotate' && this._allowRotate) showR = !showR;
+        this._tc.setParts(showT, showR);
+        this._setPartsUI();
+    }
+
+    _setPartsUI() {
+        const tc = this._tc;
+        if (!tc) return;
+        const style = (btn, on, allowed) => {
+            btn.style.background = on ? '#1f6feb' : 'rgba(255,255,255,0.06)';
+            btn.style.opacity = allowed ? '1' : '0.3';
+        };
+        style(this._moveBtn, tc.showTranslate, this._allowTranslate);
+        style(this._rotBtn, tc.showRotate, this._allowRotate);
     }
 
     // --- Base section --------------------------------------------------

@@ -95,9 +95,8 @@ export class TcpGizmo extends THREE.Object3D {
         this._active = null;        // record being dragged
         this._hovered = null;       // record under the cursor
 
-        this._startObjPos = new THREE.Vector3();
-        this._startObjQuat = new THREE.Quaternion();
         this._startWorldPos = new THREE.Vector3();
+        this._startWorldQuat = new THREE.Quaternion(); // target's WORLD orientation at drag start
         this._startHit = new THREE.Vector3();
         this._plane = new THREE.Plane();
         this._dragAxis = new THREE.Vector3();
@@ -180,8 +179,10 @@ export class TcpGizmo extends THREE.Object3D {
     // ---- public API ---------------------------------------------------------
 
     attach(object) {
+        this._endHoverAndDrag(); // reset transient hover/drag state when (re)targeting
         this.object = object;
         this.visible = this.enabledFlag && !!object;
+        this._refreshOrbit();
         return this;
     }
 
@@ -321,9 +322,8 @@ export class TcpGizmo extends THREE.Object3D {
         this.domElement.setPointerCapture?.(e.pointerId);
 
         this.object.updateWorldMatrix(true, false);
-        this._startObjPos.copy(this.object.position);
-        this._startObjQuat.copy(this.object.quaternion);
         this.object.getWorldPosition(this._startWorldPos);
+        this.object.getWorldQuaternion(this._startWorldQuat);
         this._dragAxis.copy(this._worldAxis(hit));
         this._setupPlane(hit);
 
@@ -350,7 +350,7 @@ export class TcpGizmo extends THREE.Object3D {
 
     /** World-space axis for a handle (rotated into the target frame in 'local' space). */
     _worldAxis(rec) {
-        if (this.space === 'local') return rec.axis.clone().applyQuaternion(this._startObjQuat);
+        if (this.space === 'local') return rec.axis.clone().applyQuaternion(this._startWorldQuat);
         return rec.axis.clone();
     }
 
@@ -412,7 +412,10 @@ export class TcpGizmo extends THREE.Object3D {
                 angle = now.clone().sub(this._startHit).dot(tangent.normalize()) * speed;
             }
             const dq = new THREE.Quaternion().setFromAxisAngle(rotAxis, angle);
-            this._applyWorldQuaternion(dq.multiply(this._startObjQuat.clone()));
+            // dq is a world-space delta; compose with the WORLD start orientation, then
+            // _applyWorldQuaternion converts to the target's local frame — correct even when the
+            // target sits under a rotated parent (e.g. the base worldGroup under sm.world's −90°X).
+            this._applyWorldQuaternion(dq.multiply(this._startWorldQuat.clone()));
         }
         this.dispatchEvent({ type: 'change' });
         this._redraw?.();
