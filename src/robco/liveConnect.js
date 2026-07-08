@@ -176,6 +176,8 @@ export async function connectLiveSession(app, opts) {
                 const { WaypointsPanel } = await import('./WaypointsPanel.js');
                 const store = WaypointStore.ensure(app.sceneManager, window._robcoBaseFrame);
                 WaypointsPanel.ensure({ app, teach, base: window._robcoBaseFrame, store, client, cycleTimer });
+                const { PathSingularityManager } = await import('./PathSingularityManager.js');
+                PathSingularityManager.ensure({ sm: app.sceneManager, base: window._robcoBaseFrame, store, teach });
                 const { EndEffector } = await import('./EndEffector.js');
                 const ee = EndEffector.ensure({ sm: app.sceneManager, model, teach, setupPanel: window._robcoSetupPanel });
                 const { MaterialManager } = await import('./MaterialManager.js');
