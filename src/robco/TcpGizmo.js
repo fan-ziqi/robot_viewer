@@ -452,22 +452,35 @@ export class TcpGizmo extends THREE.Object3D {
         }
     }
 
-    /** "Align to plane": snap the target's rotation about `rec.axis` (the plane normal) to the NEAREST 90°. */
+    /**
+     * "Align to plane": snap the target's rotation about `rec.axis` (the plane normal) to the
+     * NEAREST 90°. Applied by STEPPING from the current orientation to the snapped one in small
+     * (~5°) increments, firing 'change' at each — so a downstream IK consumer (the teach arm)
+     * tracks it exactly as it would a smooth drag, instead of choking on one big jump. For a free
+     * object (Setup align) the steps simply converge on the final orientation.
+     */
     _applySnap(rec) {
         const a = (this.space === 'local' && this.object)
             ? rec.axis.clone().applyQuaternion(this.object.getWorldQuaternion(this._q0)).normalize()
             : rec.axis.clone();
-        const Q = this.object.getWorldQuaternion(new THREE.Quaternion());
+        const q0 = this.object.getWorldQuaternion(new THREE.Quaternion());
         // Swing-twist about `a`: keep the swing, snap the twist angle to the nearest 90°.
-        const d = Q.x * a.x + Q.y * a.y + Q.z * a.z;
-        const twist = new THREE.Quaternion(a.x * d, a.y * d, a.z * d, Q.w);
+        const d = q0.x * a.x + q0.y * a.y + q0.z * a.z;
+        const twist = new THREE.Quaternion(a.x * d, a.y * d, a.z * d, q0.w);
         if (twist.lengthSq() < 1e-8) twist.identity(); else twist.normalize();
-        const swing = Q.clone().multiply(twist.invert());          // swing = Q · twist⁻¹
-        const theta = 2 * Math.atan2(d, Q.w);                      // signed twist angle about a
+        const swing = q0.clone().multiply(twist.invert());        // swing = Q · twist⁻¹
+        const theta = 2 * Math.atan2(d, q0.w);                    // signed twist angle about a
         const snapped = Math.round(theta / (Math.PI / 2)) * (Math.PI / 2);
-        const target = new THREE.Quaternion().setFromAxisAngle(a, snapped);
-        this._applyWorldQuaternion(swing.multiply(target));        // world = swing · (nearest 90° about a)
-        this.dispatchEvent({ type: 'change' });
+        const qFinal = swing.multiply(new THREE.Quaternion().setFromAxisAngle(a, snapped));
+
+        const total = q0.angleTo(qFinal);
+        if (total < 1e-3) return; // already on the 90° grid → nothing to do
+        const steps = Math.max(1, Math.ceil(total / (5 * Math.PI / 180))); // ~5° per step (drag-like)
+        const qi = new THREE.Quaternion();
+        for (let i = 1; i <= steps; i++) {
+            this._applyWorldQuaternion(qi.copy(q0).slerp(qFinal, i / steps));
+            this.dispatchEvent({ type: 'change' });
+        }
         this._redraw?.();
     }
 
