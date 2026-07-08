@@ -55,6 +55,29 @@ export class MujocoKinematics {
     }
 
     /**
+     * Numerical geometric Jacobian at joint angles q — a 6×nq matrix (array of 6 rows). Rows 0-2
+     * are TCP linear velocity per joint (m/rad), rows 3-5 angular velocity (rad/rad), world frame.
+     * Same forward-difference scheme as solveIK. Translation is in METRES so the value is directly
+     * comparable to the controller's singularity index (√det(J·Jᵀ) < 0.005 faults).
+     * @param {number[]} q - joint angles (rad).
+     * @param {number} [eps=1e-6] - finite-difference step (rad).
+     * @returns {number[][]} 6×nq Jacobian (row-major rows).
+     */
+    jacobian(q, eps = 1e-6) {
+        const cur = this.fk(q);
+        const J = Array.from({ length: 6 }, () => new Array(this.nq).fill(0));
+        for (let j = 0; j < this.nq; j++) {
+            const qp = q.slice();
+            qp[j] += eps;
+            const f = this.fk(qp);
+            const dp = sub(f.pos, cur.pos);
+            const dr = rotVecBetween(cur.mat, f.mat);
+            for (let r = 0; r < 3; r++) { J[r][j] = dp[r] / eps; J[r + 3][j] = dr[r] / eps; }
+        }
+        return J;
+    }
+
+    /**
      * Solve IK for a target TCP pose.
      * @param {number[]} targetPos
      * @param {number[]|null} targetMat - target 3x3 (row-major). null => position-only.
