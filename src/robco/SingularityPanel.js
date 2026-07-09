@@ -61,6 +61,7 @@ export class SingularityPanel {
     _subscribe() {
         if (!this.manager) return;
         this.manager.onResults = (r) => this._renderResults(r);
+        this.manager.onSpeedState = (st) => this._renderSpeedState(st);
         this._syncControls();
         this._renderResults(this.manager.lastResults || { segments: [], waypoints: [] });
     }
@@ -70,13 +71,39 @@ export class SingularityPanel {
         if (!this.manager || !this._enableCb) return;
         this._enableCb.checked = this.manager.enabled;
         for (const [k, cb] of Object.entries(this._layerCbs)) cb.checked = !!this.manager.opts[k];
-        if (this._speed) this._speed.value = String(this.manager.opts.speedScale);
         if (this._samples) this._samples.value = String(this.manager.opts.samples);
+        this._renderSpeedState(this.manager._speedState());
         this._setControlsEnabled(this.manager.enabled);
     }
 
     _setControlsEnabled(on) {
         for (const c of this._gated) c.disabled = !on;
+        this._renderSpeedState();
+    }
+
+    /** Render the global-speed control: the value in force + whether it's following the live
+     *  session or a manual override, and enable/hide the ⟳ re-follow button accordingly. */
+    _renderSpeedState(st) {
+        if (!this._speed || !this._followBtn) return;
+        const s = st || this.manager?._speedState();
+        if (!s) return;
+        // Show the value actually used by the scan; don't clobber the field while the user is typing.
+        if (document.activeElement !== this._speed) this._speed.value = String(Math.round(s.effective * 100) / 100);
+        const enabled = !!this.manager?.enabled;
+        this._followBtn.style.display = s.hasSession ? 'inline-block' : 'none';
+        this._followBtn.disabled = !enabled || s.following;
+        this._followBtn.style.borderColor = s.following ? '#2ea043' : 'rgba(255,255,255,0.15)';
+        this._followBtn.style.color = s.following ? '#2ea043' : '#e6edf3';
+        if (!s.hasSession) {
+            this._speedNote.textContent = 'No live session — manual scale.';
+            this._speedNote.style.color = '#8b98a5';
+        } else if (s.following) {
+            this._speedNote.textContent = `⟳ following session global speed (${s.sessionSpeed.toFixed(2)})`;
+            this._speedNote.style.color = '#2ea043';
+        } else {
+            this._speedNote.textContent = `manual override — session is ${s.sessionSpeed.toFixed(2)} · ⟳ to follow`;
+            this._speedNote.style.color = '#e3873a';
+        }
     }
 
     _build() {
@@ -112,14 +139,23 @@ export class SingularityPanel {
 
         // Settings.
         body.append(title('Settings'));
-        const speedRow = el('div', 'display:flex;align-items:center;justify-content:space-between;margin:3px 0;');
+        const speedRow = el('div', 'display:flex;align-items:center;justify-content:space-between;gap:6px;margin:3px 0;');
         speedRow.append(el('span', 'opacity:.9;', 'Global speed scale ×'));
+        const speedCtrls = el('div', 'display:flex;align-items:center;gap:5px;');
         this._speed = el('input', NUM); this._speed.type = 'number'; this._speed.min = '0.05'; this._speed.max = '1'; this._speed.step = '0.05'; this._speed.value = '1';
-        this._speed.addEventListener('change', () => this.manager?.setOptions({ speedScale: Math.min(1, Math.max(0.05, +this._speed.value || 1)) }));
-        speedRow.append(this._speed);
+        this._speed.title = 'Type a value for offline what-if analysis; ⟳ re-follows the live session speed.';
+        this._speed.addEventListener('change', () => this.manager?.setManualSpeedScale(+this._speed.value));
+        // ⟳ re-follow the live RobFlow session's global speed (shown only when a session is connected).
+        this._followBtn = el('button', BTN + 'padding:4px 7px;', '⟳');
+        this._followBtn.title = 'Follow the live session global speed';
+        this._followBtn.addEventListener('click', () => this.manager?.setFollowSession(true));
+        speedCtrls.append(this._speed, this._followBtn);
+        speedRow.append(speedCtrls);
         body.append(speedRow);
-        body.append(el('div', 'font-size:10px;color:#8b98a5;margin:0 0 2px;',
-            'Each segment’s speed = its waypoint velocity × this scale × 1.0 m/s (mirrors RobFlow’s global speed).'));
+        body.append(el('div', 'font-size:10px;color:#8b98a5;margin:0 0 1px;',
+            'Each segment’s speed = its waypoint velocity × this scale × 1.0 m/s.'));
+        this._speedNote = el('div', 'font-size:10px;margin:0 0 2px;min-height:12px;');
+        body.append(this._speedNote);
         this._gated.push(this._speed);
 
         const sampRow = el('div', 'display:flex;align-items:center;justify-content:space-between;margin:3px 0;');

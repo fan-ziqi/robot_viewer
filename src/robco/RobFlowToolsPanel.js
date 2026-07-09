@@ -30,7 +30,7 @@ function dot(color) {
 function sectionTitle(t) {
     return el('div', 'font-weight:600;letter-spacing:.04em;opacity:.85;margin:12px 0 6px;text-transform:uppercase;font-size:10px;', t);
 }
-/** Labeled slider row → { row, get } */
+/** Labeled slider row → { row, get, set }. `set` updates the thumb + readout WITHOUT firing onInput. */
 function slider(labelText, min, max, step, val, onInput) {
     const row = el('div', 'display:grid;grid-template-columns:64px 1fr 40px;gap:8px;align-items:center;margin:4px 0;');
     row.append(el('span', 'opacity:.8;', labelText));
@@ -39,7 +39,11 @@ function slider(labelText, min, max, step, val, onInput) {
     const out = el('span', 'text-align:right;opacity:.9;', (+val).toFixed(2));
     input.addEventListener('input', () => { out.textContent = (+input.value).toFixed(2); onInput?.(+input.value); });
     row.append(input, out);
-    return { row, get: () => +input.value };
+    return {
+        row,
+        get: () => +input.value,
+        set: (v) => { if (Number.isFinite(+v)) { input.value = String(+v); out.textContent = (+v).toFixed(2); } },
+    };
 }
 
 export class RobFlowToolsPanel {
@@ -170,7 +174,9 @@ export class RobFlowToolsPanel {
         const ctrlStop = el('button', BTN + 'background:#5a1e1e;border-color:#f85149;', 'Stop');
         ctrlRow.append(this._enableBtn, ctrlStop);
         this._ctrlBox.append(ctrlRow);
-        this._gspeed = slider('glob spd', 0, 1, 0.01, 1, () => {});
+        // Global speed is two-way: dragging PUTs to the session; a session-reported value updates
+        // the thumb via setGlobalSpeedFromSession() (no echo PUT). Min 0.01 — the API rejects 0.
+        this._gspeed = slider('glob spd', 0.01, 1, 0.01, 1, () => {});
         this._gspeed.row.querySelector('input').addEventListener('change', (e) => this._setGlobalSpeed(+e.target.value));
         this._ctrlBox.append(this._gspeed.row);
         root.append(this._ctrlBox);
@@ -500,10 +506,21 @@ export class RobFlowToolsPanel {
             this._ik.textContent = `${kind} failed: ${e.message}`;
         }
     }
+    /** User dragged the slider → command the session, then let listeners (e.g. the singularity
+     *  analysis) follow the value the robot actually accepted. */
     async _setGlobalSpeed(v) {
         if (!this.client) return;
-        try { await this.client.setGlobalSpeed(v); this.setApi(true); }
-        catch (e) { this.setApi(false); this._ik.textContent = `speed failed: ${e.message}`; }
+        try {
+            await this.client.setGlobalSpeed(v);
+            this.setApi(true);
+            this.onGlobalSpeedCommanded?.(Math.min(1, Math.max(0.01, +v)));
+        } catch (e) { this.setApi(false); this._ik.textContent = `speed failed: ${e.message}`; }
+    }
+
+    /** Reflect the session's reported global speed on the slider WITHOUT re-commanding it (the WS
+     *  `globalSpeed` push drives this via liveConnect — no PUT, so there's no feedback loop). */
+    setGlobalSpeedFromSession(v) {
+        if (Number.isFinite(+v)) this._gspeed?.set(Math.min(1, Math.max(0.01, +v)));
     }
     async _pingApi() {
         try { await this.client.getRobotConfig(); this.setApi(true); }
