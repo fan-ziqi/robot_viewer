@@ -104,6 +104,14 @@ export class GizmoPanel {
         roRow.append(this._readoutBtn);
         body.append(roRow);
 
+        // --- Screen-space handle ---------------------------------------------
+        body.append(label('Screen handle'));
+        const shRow = row();
+        this._screenBtn = el('button', BTN, 'Off');
+        this._screenBtn.addEventListener('click', () => set({ screenHandle: !get().screenHandle }));
+        shRow.append(this._screenBtn);
+        body.append(shRow);
+
         makeCollapsible(body, minBtn, 'gizmo');
         document.body.appendChild(root);
         this.root = root;
@@ -124,6 +132,8 @@ export class GizmoPanel {
         }
         this._readoutBtn.style.background = s.readout ? ACTIVE : IDLE;
         this._readoutBtn.textContent = s.readout ? 'On' : 'Off';
+        this._screenBtn.style.background = s.screenHandle ? ACTIVE : IDLE;
+        this._screenBtn.textContent = s.screenHandle ? 'On' : 'Off';
     }
 
     dispose() {

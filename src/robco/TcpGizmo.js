@@ -21,7 +21,7 @@
 import * as THREE from 'three';
 import { registerGizmo, unregisterGizmo } from './gizmoSettings.js';
 
-const COLORS = { X: 0xff3653, Y: 0x8adb00, Z: 0x2c8fff, hover: 0xffd24a };
+const COLORS = { X: 0xff3653, Y: 0x8adb00, Z: 0x2c8fff, hover: 0xffd24a, screen: 0xcfd8e3 };
 const AXIS = {
     X: new THREE.Vector3(1, 0, 0),
     Y: new THREE.Vector3(0, 1, 0),
@@ -130,6 +130,10 @@ export class TcpGizmo extends THREE.Object3D {
         this._ptrClientX = 0;
         this._ptrClientY = 0;
         this._readoutEl = null;  // lazily-created drag-readout chip
+        this._screenHandle = false; // centre screen-space translate handle
+        this._ringFade = false;     // depth cue on the rotate rings (phase 4)
+        this._screenGroup = null;
+        this._q1 = new THREE.Quaternion(); // scratch (screen-handle billboard)
         registerGizmo(this);
     }
 
@@ -141,6 +145,7 @@ export class TcpGizmo extends THREE.Object3D {
             this._buildRing(key);
         }
         for (const spec of PLANES) this._buildPlane(spec);
+        this._buildScreen();
     }
 
     _buildArrow(key) {
@@ -186,6 +191,21 @@ export class TcpGizmo extends THREE.Object3D {
         g.add(quad, picker);
         this._translateGroup.add(g); // planar handles ride with the translate set (Move toggle)
         this._register({ kind: 'plane', key: spec.key, axis: normal, priority: 3, mat, picker });
+    }
+
+    // Centre screen-space translate handle: a small camera-facing quad that drags the target in
+    // the view plane. Built once; shown only when the option is on (see updateMatrixWorld).
+    _buildScreen() {
+        const mat = visMaterial(COLORS.screen);
+        const quad = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.13), mat);
+        const picker = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.2), pickerMaterial());
+        [quad, picker].forEach((m) => { m.renderOrder = 502; });
+        const g = new THREE.Group();
+        g.visible = false;
+        g.add(quad, picker);
+        this._translateGroup.add(g); // rides with the translate set
+        this._screenGroup = g;
+        this._register({ kind: 'screen', key: 'S', axis: UNIT_Z.clone(), priority: 5, mat, picker });
     }
 
     _register(rec) {
@@ -242,7 +262,8 @@ export class TcpGizmo extends THREE.Object3D {
         this._snap = !!s.snap;
         this._snapDeg = s.snapDeg || 15;
         this._readout = !!s.readout;
-        // s.screenHandle / s.ringFade land in later phases.
+        this._screenHandle = !!s.screenHandle;
+        this._ringFade = !!s.ringFade;
         this._redraw?.();
     }
 
@@ -270,6 +291,14 @@ export class TcpGizmo extends THREE.Object3D {
             this.scale.setScalar(this._scaleFactor());
             this._translateGroup.visible = this.showTranslate;
             this._rotateGroup.visible = this.showRotate;
+            if (this._screenGroup) {
+                this._screenGroup.visible = this._screenHandle && this.showTranslate;
+                if (this._screenGroup.visible) {
+                    // Billboard the centre handle to face the camera, whatever the gizmo's own frame.
+                    this.camera.getWorldQuaternion(this._q1);
+                    this._screenGroup.quaternion.copy(this.quaternion).invert().multiply(this._q1);
+                }
+            }
         }
         super.updateMatrixWorld(force);
     }
@@ -308,7 +337,10 @@ export class TcpGizmo extends THREE.Object3D {
         this._ptrShift = !!e.shiftKey;
     }
 
-    _partShown(rec) { return rec.kind === 'rotate' ? this.showRotate : this.showTranslate; }
+    _partShown(rec) {
+        if (rec.kind === 'screen') return this._screenHandle && this.showTranslate;
+        return rec.kind === 'rotate' ? this.showRotate : this.showTranslate;
+    }
 
     /** Raycast all shown pickers; the winner is highest priority, then nearest. */
     _pick() {
@@ -354,6 +386,9 @@ export class TcpGizmo extends THREE.Object3D {
         if (!hit) return; // empty space → let OrbitControls handle it
         this._dragging = true;
         this._active = hit;
+        // Disable orbit the instant we grab a handle — covers touch, which has no prior hover to
+        // pre-disable it (mouse already did via _refreshOrbit on hover).
+        if (this.orbit) this.orbit.enabled = false;
         this.domElement.setPointerCapture?.(e.pointerId);
 
         this.object.updateWorldMatrix(true, false);
@@ -419,10 +454,10 @@ export class TcpGizmo extends THREE.Object3D {
         this.camera.getWorldPosition(this._camPos); // ensure the camera position is current for the plane
         const axis = this._dragAxis;
         const origin = this._startWorldPos;
-        if (rec.kind === 'rotate') {
-            // Camera-facing plane (normal = toward the camera): never edge-on to the view, so the
-            // ray∩plane stays well-conditioned at every angle — this is what removes the edge-on
-            // rotation blow-up. The angle comes from the tangential drag in _drag, not this plane.
+        if (rec.kind === 'rotate' || rec.kind === 'screen') {
+            // Camera-facing plane (normal = toward the camera). For 'rotate' this keeps the
+            // ray∩plane well-conditioned at every angle (no edge-on blow-up); for the 'screen'
+            // handle it IS the drag plane (translate parallel to the view).
             const n = this._tmp.copy(this._camPos).sub(origin);
             this._plane.setFromNormalAndCoplanarPoint(n.lengthSq() < 1e-9 ? UNIT_Z : n.normalize(), origin);
             return;
@@ -455,12 +490,13 @@ export class TcpGizmo extends THREE.Object3D {
             if (snapping) offset = snap(offset, TRANSLATE_SNAP_M);
             this._applyWorldPosition(this._startWorldPos.clone().addScaledVector(axis, offset));
             label = `${(offset * 1000).toFixed(snapping ? 0 : 1)} mm`;
-        } else if (this._active.kind === 'plane') {
-            const rel = now.clone().sub(this._startHit); // already in-plane
+        } else if (this._active.kind === 'plane' || this._active.kind === 'screen') {
+            const rel = now.clone().sub(this._startHit); // already in the drag plane
             let delta = rel;
             if (snapping) {
-                const e1 = perpTo(axis);
-                const e2 = axis.clone().cross(e1).normalize();
+                const n = this._plane.normal; // the handle's own plane, or the camera plane for 'screen'
+                const e1 = perpTo(n);
+                const e2 = n.clone().cross(e1).normalize();
                 delta = e1.multiplyScalar(snap(rel.dot(e1), TRANSLATE_SNAP_M))
                     .addScaledVector(e2, snap(rel.dot(e2), TRANSLATE_SNAP_M));
             }
