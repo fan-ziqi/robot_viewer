@@ -43,8 +43,9 @@ const PANEL_DEFS = {
     tools:     { title: 'RobFlow Tools',   icon: 'tools',     dock: 'right', order: 0 },
     camera:    { title: 'Camera',          icon: 'camera',    dock: 'right', order: 1 },
     waypoints: { title: 'Waypoints',       icon: 'waypoints', dock: 'right', order: 2 },
-    stream:    { title: 'Stream Rate',     icon: 'stream',    dock: 'right', order: 3 },
-    blender:   { title: 'Blender Export',  icon: 'blender',   dock: 'right', order: 4 },
+    singularity: { title: 'Singularity Analysis', icon: 'singularity', dock: 'right', order: 3 },
+    stream:    { title: 'Stream Rate',     icon: 'stream',    dock: 'right', order: 4 },
+    blender:   { title: 'Blender Export',  icon: 'blender',   dock: 'right', order: 5 },
     dynamics:  { title: 'Joint Dynamics',  icon: 'dynamics',  dock: 'float', order: 0 },
 };
 
@@ -56,6 +57,7 @@ const AVAILABILITY_HINT = {
     tools: 'loads with a robot',
     camera: 'loads with a robot',
     waypoints: 'loads with a robot',
+    singularity: 'loads with a robot',
     dynamics: 'loads with a robot',
     blender: 'loads with a robot',
     stream: 'appears on live connect',

@@ -14,6 +14,7 @@ import { mjcfFromModules } from './mjcfFromModules.js';
 import { ROBCO_AXIS_LIMIT_RAD } from '../robco/robcoLimits.js';
 
 const DRIVE_TYPES = new Set(['Drive', 'BaseDrive']);
+const DEFAULT_MAX_VELOCITY = 6.28; // rad/s, when a descriptor omits module_properties.max_velocity
 
 export class MujocoKinematics {
     static async create(descriptors, opts = {}) {
@@ -28,6 +29,12 @@ export class MujocoKinematics {
         // RobCo axes all travel ±270° (see robcoLimits.js); clamp IK to the same on every axis.
         this.qLower = drives.map(() => -ROBCO_AXIS_LIMIT_RAD);
         this.qUpper = drives.map(() => ROBCO_AXIS_LIMIT_RAD);
+        // Per-axis velocity limit (rad/s) from each drive's module_properties.max_velocity — used by
+        // the singularity velocity-headroom estimate. Same order as qLower/qUpper (drive order).
+        this.dqAbs = drives.map((d) => {
+            const v = d.module_properties?.max_velocity;
+            return Number.isFinite(v) && v > 0 ? v : DEFAULT_MAX_VELOCITY;
+        });
         try { mj.FS.mkdir('/working'); } catch { /* exists */ }
         try { mj.FS.mount(mj.MEMFS, { root: '.' }, '/working'); } catch { /* mounted */ }
 
@@ -52,6 +59,29 @@ export class MujocoKinematics {
             pos: [data.site_xpos[p], data.site_xpos[p + 1], data.site_xpos[p + 2]],
             mat: Array.from({ length: 9 }, (_, k) => data.site_xmat[m + k]),
         };
+    }
+
+    /**
+     * Numerical geometric Jacobian at joint angles q — a 6×nq matrix (array of 6 rows). Rows 0-2
+     * are TCP linear velocity per joint (m/rad), rows 3-5 angular velocity (rad/rad), world frame.
+     * Same forward-difference scheme as solveIK. Translation is in METRES so the value is directly
+     * comparable to the controller's singularity index (√det(J·Jᵀ) < 0.005 faults).
+     * @param {number[]} q - joint angles (rad).
+     * @param {number} [eps=1e-6] - finite-difference step (rad).
+     * @returns {number[][]} 6×nq Jacobian (row-major rows).
+     */
+    jacobian(q, eps = 1e-6) {
+        const cur = this.fk(q);
+        const J = Array.from({ length: 6 }, () => new Array(this.nq).fill(0));
+        for (let j = 0; j < this.nq; j++) {
+            const qp = q.slice();
+            qp[j] += eps;
+            const f = this.fk(qp);
+            const dp = sub(f.pos, cur.pos);
+            const dr = rotVecBetween(cur.mat, f.mat);
+            for (let r = 0; r < 3; r++) { J[r][j] = dp[r] / eps; J[r + 3][j] = dr[r] / eps; }
+        }
+        return J;
     }
 
     /**
