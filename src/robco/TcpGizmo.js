@@ -98,6 +98,8 @@ export class TcpGizmo extends THREE.Object3D {
         this._ptr = new THREE.Vector2();
         this._pickers = [];         // { mesh, record }
         this._records = [];         // per-handle { kind, key, axis, priority, mat, baseColor, picker }
+        this._ringMats = [];        // rotate-ring visible materials (for the depth-fade toggle)
+        this._ringFaints = [];      // faint always-on-top ring copies (shown only when fading)
 
         this._dragging = false;
         this._active = null;        // record being dragged
@@ -169,14 +171,29 @@ export class TcpGizmo extends THREE.Object3D {
     _buildRing(key) {
         const axis = AXIS[key];
         const mat = visMaterial(COLORS[key]);
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(RING_RADIUS, 0.014, 8, 64), mat);
+        const geom = new THREE.TorusGeometry(RING_RADIUS, 0.014, 8, 64);
+        const ring = new THREE.Mesh(geom, mat);
+        // Faint always-on-top twin, shown only with depth-fade: it keeps the occluded (far) half of
+        // the ring faintly visible while the bright depth-tested copy shows the near half.
+        const faintMat = visMaterial(COLORS[key]);
+        faintMat.opacity = 0.22;
+        const faint = new THREE.Mesh(geom, faintMat);
+        faint.visible = false;
         const picker = new THREE.Mesh(new THREE.TorusGeometry(RING_RADIUS, 0.1, 6, 48), pickerMaterial());
         const g = new THREE.Group();
         g.quaternion.setFromUnitVectors(UNIT_Z, axis); // torus hole-normal (+Z) → rotation axis
-        [ring, picker].forEach((m) => { m.renderOrder = 500; });
-        g.add(ring, picker);
+        [ring, faint, picker].forEach((m) => { m.renderOrder = 500; });
+        g.add(ring, faint, picker);
         this._rotateGroup.add(g);
+        this._ringMats.push(mat);
+        this._ringFaints.push(faint);
         this._register({ kind: 'rotate', key, axis, priority: 1, mat, picker });
+    }
+
+    /** Depth-fade: bright rings become depth-tested (occluded by the arm), faint twins fill in. */
+    _applyRingFade() {
+        for (const m of this._ringMats) { m.depthTest = this._ringFade; m.needsUpdate = true; }
+        for (const f of this._ringFaints) f.visible = this._ringFade;
     }
 
     _buildPlane(spec) {
@@ -264,6 +281,7 @@ export class TcpGizmo extends THREE.Object3D {
         this._readout = !!s.readout;
         this._screenHandle = !!s.screenHandle;
         this._ringFade = !!s.ringFade;
+        this._applyRingFade();
         this._redraw?.();
     }
 

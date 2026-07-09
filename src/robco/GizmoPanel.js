@@ -112,6 +112,14 @@ export class GizmoPanel {
         shRow.append(this._screenBtn);
         body.append(shRow);
 
+        // --- Ring depth-fade -------------------------------------------------
+        body.append(label('Ring depth-fade'));
+        const rfRow = row();
+        this._fadeBtn = el('button', BTN, 'Off');
+        this._fadeBtn.addEventListener('click', () => set({ ringFade: !get().ringFade }));
+        rfRow.append(this._fadeBtn);
+        body.append(rfRow);
+
         makeCollapsible(body, minBtn, 'gizmo');
         document.body.appendChild(root);
         this.root = root;
@@ -134,6 +142,8 @@ export class GizmoPanel {
         this._readoutBtn.textContent = s.readout ? 'On' : 'Off';
         this._screenBtn.style.background = s.screenHandle ? ACTIVE : IDLE;
         this._screenBtn.textContent = s.screenHandle ? 'On' : 'Off';
+        this._fadeBtn.style.background = s.ringFade ? ACTIVE : IDLE;
+        this._fadeBtn.textContent = s.ringFade ? 'On' : 'Off';
     }
 
     dispose() {
