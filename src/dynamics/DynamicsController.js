@@ -132,14 +132,19 @@ export class DynamicsController {
         this._lastAngles = anglesDeg;
         this._syncGravity();
         const qRad = anglesDeg.map((d) => d * DEG2RAD);
-        const { velocity, acceleration } = this.deriv.update(qRad, tMs);
+        // JointDerivatives returns q, q̇, q̈ ALL at the same instant (the centred/fixed-lag eval
+        // point). Feed its `position` — not the raw latest qRad — into inverse dynamics so the
+        // pose matches the velocity/accel; mixing latest-q with lagged q̇/q̈ would corrupt the
+        // Coriolis/inertia torque. The displayed angle uses the same (lagged, smoothed) pose.
+        const { position, velocity, acceleration } = this.deriv.update(qRad, tMs);
         const { torque, utilization, current, currentUtil } =
-            this.dyn.computeTorques(qRad, velocity, acceleration);
+            this.dyn.computeTorques(position, velocity, acceleration);
         // Integrate the i²t heat index over real elapsed time (thermal, not the differentiation Δt).
         const dtSec = this._lastT == null ? 0 : (tMs - this._lastT) / 1000;
         this._lastT = tMs;
         const heat = this.i2t.update(current, dtSec);
-        this.dash.render({ angleDeg: anglesDeg, velocity, acceleration, torque, utilization, current, currentUtil, heat });
+        const angleDeg = position.map((r) => r / DEG2RAD);
+        this.dash.render({ angleDeg, velocity, acceleration, torque, utilization, current, currentUtil, heat });
     }
 
     /**
