@@ -86,6 +86,8 @@ export async function connectLiveSession(app, opts) {
     let latestBaseShift = null;
     let dynamics = null;
     let teach = null;
+    let pathSingularity = null;   // singularity manager (built with the robot) — follows the session global speed
+    let latestGlobalSpeed = null; // last WS-reported global speed, replayed to a late-built manager
     let firstJa = true;
 
     // --- RobFlow-reported payload --------------------------------------------------------------
@@ -178,6 +180,9 @@ export async function connectLiveSession(app, opts) {
                 WaypointsPanel.ensure({ app, teach, base: window._robcoBaseFrame, store, client, cycleTimer });
                 const { PathSingularityManager } = await import('./PathSingularityManager.js');
                 const pathSing = PathSingularityManager.ensure({ sm: app.sceneManager, base: window._robcoBaseFrame, store, teach });
+                pathSingularity = pathSing;
+                // Feed it any global speed the session already reported before this build (connect burst).
+                if (latestGlobalSpeed != null) pathSing.setSessionSpeed(latestGlobalSpeed);
                 const { SingularityPanel } = await import('./SingularityPanel.js');
                 SingularityPanel.ensure({ manager: pathSing });
                 const { EndEffector } = await import('./EndEffector.js');
@@ -348,6 +353,30 @@ export async function connectLiveSession(app, opts) {
     socket.on('robotState', (d) => panel.setStates({ robotState: d }));
     socket.on('operationMode', (d) => panel.setStates({ operationMode: d }));
     socket.on('safetyState', (d) => panel.setStates({ safetyState: d }));
+
+    // Global speed is the session's source of truth. The WS pushes it on connect and on change;
+    // reflect it on the Tools slider (no re-PUT → no feedback loop) and let the singularity analysis
+    // follow it so the prediction matches the real arm. `data` is a bare fraction, but accept the
+    // common object shapes defensively since the exact wire form isn't pinned in the API contract.
+    const parseGlobalSpeed = (d) => {
+        const raw = (d != null && typeof d === 'object')
+            ? (d.globalSpeed ?? d.speed ?? d.value ?? d.multiplier ?? d.globalSpeedMultiplier)
+            : d;
+        const n = +raw;
+        return Number.isFinite(n) ? Math.min(1, Math.max(0.01, n)) : null;
+    };
+    socket.on('globalSpeed', (d) => {
+        const v = parseGlobalSpeed(d);
+        if (v == null) return;
+        latestGlobalSpeed = v;
+        panel.setGlobalSpeedFromSession(v);
+        pathSingularity?.setSessionSpeed(v);
+    });
+    // Dragging the Tools slider commands a new speed; follow it immediately (the WS echo confirms).
+    panel.onGlobalSpeedCommanded = (v) => {
+        latestGlobalSpeed = v;
+        pathSingularity?.setSessionSpeed(v);
+    };
     socket.onStatus((state) => {
         panel.setWs(state === 'open');
         panel.setRobotLive({ connected: state === 'open' });
@@ -368,6 +397,11 @@ export async function connectLiveSession(app, opts) {
             }
         } else {
             console.log(`[RobCo] WS ${state}`);
+            // Link is down — we no longer know the live global speed, so stop the singularity
+            // analysis claiming to "follow" a dead session (it reverts to the manual scale). The
+            // reconnect burst re-pushes `globalSpeed`; `latestGlobalSpeed` is kept only to reseed a
+            // robot rebuild, which can't happen while disconnected anyway.
+            pathSingularity?.setSessionSpeed(null);
         }
     });
 

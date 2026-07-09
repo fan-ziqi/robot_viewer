@@ -35,7 +35,13 @@ const DEFAULT_OPTS = {
     showArrows: true,
     showWaypointFlags: true,
     samples: 21,
-    speedScale: 1.0, // RobFlow global speed / online velocity override (0..1); multiplies each waypoint's velocity
+    // Global speed scale (0..1) that multiplies each waypoint's velocity. Two modes:
+    //   followSession=true  → the EFFECTIVE scale tracks the live RobFlow session's global speed
+    //                         (fed via setSessionSpeed) so the prediction matches the real arm;
+    //   followSession=false → the EFFECTIVE scale is `speedScale` below (a manual what-if override).
+    // `speedScale` is the persisted manual value; the live session speed is not persisted.
+    speedScale: 1.0,
+    followSession: true,
 };
 
 export class PathSingularityManager {
@@ -59,6 +65,8 @@ export class PathSingularityManager {
         this.enabled = saved?.enabled ?? false;
         this.opts = { ...DEFAULT_OPTS, ...(saved?.opts || {}) };
         this.onResults = null; // (results) => void — panel subscribes to render readouts
+        this.onSpeedState = null; // (state) => void — panel subscribes to render the speed follow/override UI
+        this.sessionSpeed = null; // last global speed reported by the live session (0..1), or null when offline
         this._timer = null;
         this.lastResults = { segments: [], waypoints: [] };
 
@@ -115,6 +123,52 @@ export class PathSingularityManager {
         if (this.enabled) this.refresh();
     }
 
+    // --- global speed: follow the live session, or a manual what-if override ------------------
+    /** The scale actually used by the scan: the live session speed when following, else the manual value. */
+    effectiveSpeedScale() {
+        return (this.opts.followSession && this.sessionSpeed != null) ? this.sessionSpeed : this.opts.speedScale;
+    }
+
+    /** Snapshot for the panel: what value is in force and why. */
+    _speedState() {
+        const hasSession = this.sessionSpeed != null;
+        return {
+            effective: this.effectiveSpeedScale(),
+            sessionSpeed: this.sessionSpeed,
+            manual: this.opts.speedScale,
+            followSession: !!this.opts.followSession,
+            hasSession,
+            following: !!this.opts.followSession && hasSession,
+        };
+    }
+
+    /** The live session reported its global speed (via the WS `globalSpeed` push, 0.01..1, or null
+     *  when the session drops). Re-scans when following so the prediction tracks the real arm. */
+    setSessionSpeed(v) {
+        const next = (v == null || !Number.isFinite(+v)) ? null : Math.min(1, Math.max(0.01, +v));
+        if (next === this.sessionSpeed) { this.onSpeedState?.(this._speedState()); return; }
+        this.sessionSpeed = next;
+        this.onSpeedState?.(this._speedState());
+        if (this.opts.followSession) this.scheduleRefresh();
+    }
+
+    /** User typed a scale in the panel → switch to manual override and use it. */
+    setManualSpeedScale(v) {
+        const val = Math.min(1, Math.max(0.05, Number.isFinite(+v) ? +v : 1));
+        this.opts = { ...this.opts, speedScale: val, followSession: false };
+        this._save();
+        this.onSpeedState?.(this._speedState());
+        if (this.enabled) this.refresh();
+    }
+
+    /** Re-follow the live session speed (the ⟳ button), or explicitly go manual. */
+    setFollowSession(on) {
+        this.opts = { ...this.opts, followSession: !!on };
+        this._save();
+        this.onSpeedState?.(this._speedState());
+        if (this.enabled) this.refresh();
+    }
+
     scheduleRefresh() {
         if (!this.enabled) return;
         clearTimeout(this._timer);
@@ -141,7 +195,7 @@ export class PathSingularityManager {
             if (to.mode !== 'cartesian' || !from.worldPose || !to.worldPose) continue;
             const seed = (from.joints && from.joints.length) ? from.joints.map((d) => d * D2R) : undefined;
             // Commanded speed = destination waypoint's velocity fraction × global speed scale × caps.
-            const velFrac = Math.max(0.001, Math.min(1, (to.velocity ?? 1) * this.opts.speedScale));
+            const velFrac = Math.max(0.001, Math.min(1, (to.velocity ?? 1) * this.effectiveSpeedScale()));
             const cartVel = velFrac * X_VEL_LIMIT;
             const rotVel = velFrac * O_VEL_LIMIT;
             let scan;

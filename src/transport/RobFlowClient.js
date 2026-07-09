@@ -102,9 +102,10 @@ export class RobFlowClient {
         return this._get('/robot-config/');
     }
 
-    /** Set global speed fraction (0..1). */
+    /** Set global speed fraction. The API accepts 0.01..1 (a 0 → HTTP 422), so clamp to that floor. */
     setGlobalSpeed(speed) {
-        return this._put('/global-speed', Math.round(speed * 1000) / 1000);
+        const v = Math.min(1, Math.max(0.01, Number.isFinite(+speed) ? +speed : 0.01));
+        return this._put('/global-speed', Math.round(v * 1000) / 1000);
     }
 
     /** Stop any active jog motion. */
