@@ -33,6 +33,7 @@ const UNIT_Z = new THREE.Vector3(0, 0, 1);
 const RING_RADIUS = 1.2;   // rings sit outside the arrow tips (~0.9) so hit-areas stay apart
 const ARROW_LEN = 0.9;
 const ROTATION_SPEED = 20;  // drag-pixels → radians sensitivity (matches three's TransformControls)
+const TRANSLATE_SNAP_M = 0.01; // 10 mm grid when hold-Shift snapping translation
 
 // Planar-translate handles: a small quad in each coordinate plane, coloured by its normal axis.
 const PLANE_OFFSET = 0.34;  // quad centre offset from the origin, into the +/+ quadrant
@@ -61,6 +62,12 @@ function planeMaterial(color) {
         color, transparent: true, opacity: 0.35, depthTest: false, depthWrite: false,
         toneMapped: false, side: THREE.DoubleSide,
     });
+}
+
+/** Any unit vector perpendicular to n (used to build an in-plane snap grid). */
+function perpTo(n) {
+    const a = Math.abs(n.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+    return a.cross(n).normalize();
 }
 
 export class TcpGizmo extends THREE.Object3D {
@@ -116,9 +123,13 @@ export class TcpGizmo extends THREE.Object3D {
 
         // Opt-in options driven by the shared Gizmo settings (see gizmoSettings.js). Defaults
         // reproduce today's behaviour; registering applies the current settings immediately.
-        this._snap = false;      // hold-Shift snapping (phase 2)
+        this._snap = false;      // hold-Shift snapping
         this._snapDeg = 15;
-        this._readout = false;   // live drag readout (phase 2)
+        this._readout = false;   // live drag readout
+        this._ptrShift = false;  // Shift held on the latest pointer event
+        this._ptrClientX = 0;
+        this._ptrClientY = 0;
+        this._readoutEl = null;  // lazily-created drag-readout chip
         registerGizmo(this);
     }
 
@@ -238,6 +249,7 @@ export class TcpGizmo extends THREE.Object3D {
     dispose() {
         unregisterGizmo(this);
         this._removeListeners();
+        this._readoutEl?.remove();
         this._endHoverAndDrag(); // clear hover/drag (touches mat.color) BEFORE disposing materials
         this._refreshOrbit();    // never leave OrbitControls stuck disabled after teardown
         this.traverse((o) => {
@@ -291,6 +303,9 @@ export class TcpGizmo extends THREE.Object3D {
             ((e.clientX - r.left) / r.width) * 2 - 1,
             -((e.clientY - r.top) / r.height) * 2 + 1,
         );
+        this._ptrClientX = e.clientX;
+        this._ptrClientY = e.clientY;
+        this._ptrShift = !!e.shiftKey;
     }
 
     _partShown(rec) { return rec.kind === 'rotate' ? this.showRotate : this.showTranslate; }
@@ -362,10 +377,36 @@ export class TcpGizmo extends THREE.Object3D {
         if (!this._dragging) return;
         this._dragging = false;
         this._active = null;
+        this._hideReadout();
         this.domElement.releasePointerCapture?.(e.pointerId);
         this._refreshOrbit();
         this.dispatchEvent({ type: 'dragging-changed', value: false });
         this._redraw?.();
+    }
+
+    // ---- drag readout chip (a small DOM pill that follows the cursor) -------
+    _ensureReadout() {
+        if (this._readoutEl) return this._readoutEl;
+        const d = document.createElement('div');
+        d.style.cssText = 'position:fixed;z-index:3450;pointer-events:none;display:none;' +
+            'padding:2px 7px;border-radius:5px;font:600 11px ui-monospace,Menlo,Consolas,monospace;' +
+            'color:#e6edf3;background:rgba(13,17,23,0.92);border:1px solid rgba(255,255,255,0.18);' +
+            'box-shadow:0 2px 8px rgba(0,0,0,0.45);';
+        document.body.appendChild(d);
+        this._readoutEl = d;
+        return d;
+    }
+
+    _showReadout(text) {
+        const d = this._ensureReadout();
+        d.textContent = text;
+        d.style.left = `${this._ptrClientX + 14}px`;
+        d.style.top = `${this._ptrClientY + 16}px`;
+        d.style.display = 'block';
+    }
+
+    _hideReadout() {
+        if (this._readoutEl) this._readoutEl.style.display = 'none';
     }
 
     /** World-space axis for a handle (rotated into the target frame in 'local' space). */
@@ -405,14 +446,26 @@ export class TcpGizmo extends THREE.Object3D {
         if (!this._raycaster.ray.intersectPlane(this._plane, now)) return;
         const axis = this._dragAxis;
 
+        const snapping = this._snap && this._ptrShift; // opt-in snap, only while Shift is held
+        const snap = (v, step) => Math.round(v / step) * step;
+        let label = null;
+
         if (this._active.kind === 'translate') {
-            const offset = now.clone().sub(this._startHit).dot(axis);
-            const world = this._startWorldPos.clone().addScaledVector(axis, offset);
-            this._applyWorldPosition(world);
+            let offset = now.clone().sub(this._startHit).dot(axis);
+            if (snapping) offset = snap(offset, TRANSLATE_SNAP_M);
+            this._applyWorldPosition(this._startWorldPos.clone().addScaledVector(axis, offset));
+            label = `${(offset * 1000).toFixed(snapping ? 0 : 1)} mm`;
         } else if (this._active.kind === 'plane') {
-            // Both points lie on the drag plane, so their delta is already in-plane → apply directly.
-            const world = this._startWorldPos.clone().add(now.clone().sub(this._startHit));
-            this._applyWorldPosition(world);
+            const rel = now.clone().sub(this._startHit); // already in-plane
+            let delta = rel;
+            if (snapping) {
+                const e1 = perpTo(axis);
+                const e2 = axis.clone().cross(e1).normalize();
+                delta = e1.multiplyScalar(snap(rel.dot(e1), TRANSLATE_SNAP_M))
+                    .addScaledVector(e2, snap(rel.dot(e2), TRANSLATE_SNAP_M));
+            }
+            this._applyWorldPosition(this._startWorldPos.clone().add(delta));
+            label = `${(delta.length() * 1000).toFixed(snapping ? 0 : 1)} mm`;
         } else {
             // Rotation on the camera-facing plane (see _setupPlane): project the drag onto the ring's
             // screen tangent (axis × eye) — well-conditioned at every camera angle, no edge-on blow-up.
@@ -431,12 +484,15 @@ export class TcpGizmo extends THREE.Object3D {
                 const speed = ROTATION_SPEED / this._startWorldPos.distanceTo(this._camPos);
                 angle = now.clone().sub(this._startHit).dot(tangent.normalize()) * speed;
             }
+            if (snapping) angle = snap(angle, (this._snapDeg * Math.PI) / 180);
             const dq = new THREE.Quaternion().setFromAxisAngle(rotAxis, angle);
             // dq is a world-space delta; compose with the WORLD start orientation, then
             // _applyWorldQuaternion converts to the target's local frame — correct even when the
             // target sits under a rotated parent (e.g. the base worldGroup under sm.world's −90°X).
             this._applyWorldQuaternion(dq.multiply(this._startWorldQuat.clone()));
+            label = `${(angle * 180 / Math.PI).toFixed(snapping ? 0 : 1)}°`;
         }
+        if (this._readout && label != null) this._showReadout(label); else this._hideReadout();
         this.dispatchEvent({ type: 'change' });
         this._redraw?.();
     }

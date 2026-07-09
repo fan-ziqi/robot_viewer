@@ -79,6 +79,31 @@ export class GizmoPanel {
         handleRow.append(this._moveBtn, this._rotBtn);
         body.append(handleRow);
 
+        // --- Snap ------------------------------------------------------------
+        body.append(label('Snap (hold Shift)'));
+        const snapRow = row();
+        this._snapBtn = el('button', BTN, 'Off');
+        this._snapBtn.addEventListener('click', () => set({ snap: !get().snap }));
+        snapRow.append(this._snapBtn);
+        body.append(snapRow);
+        const degRow = row();
+        this._degBtns = {};
+        for (const d of [15, 45, 90]) {
+            const b = el('button', BTN, `${d}°`);
+            b.addEventListener('click', () => set({ snapDeg: d }));
+            this._degBtns[d] = b;
+            degRow.append(b);
+        }
+        body.append(degRow);
+
+        // --- Drag readout ----------------------------------------------------
+        body.append(label('Drag readout'));
+        const roRow = row();
+        this._readoutBtn = el('button', BTN, 'Off');
+        this._readoutBtn.addEventListener('click', () => set({ readout: !get().readout }));
+        roRow.append(this._readoutBtn);
+        body.append(roRow);
+
         makeCollapsible(body, minBtn, 'gizmo');
         document.body.appendChild(root);
         this.root = root;
@@ -91,6 +116,14 @@ export class GizmoPanel {
         this._localBtn.style.background = s.space === 'local' ? ACTIVE : IDLE;
         this._moveBtn.style.background = s.showTranslate ? ACTIVE : IDLE;
         this._rotBtn.style.background = s.showRotate ? ACTIVE : IDLE;
+        this._snapBtn.style.background = s.snap ? ACTIVE : IDLE;
+        this._snapBtn.textContent = s.snap ? 'On' : 'Off';
+        for (const d of [15, 45, 90]) {
+            this._degBtns[d].style.background = s.snapDeg === d ? ACTIVE : IDLE;
+            this._degBtns[d].style.opacity = s.snap ? '1' : '0.4';
+        }
+        this._readoutBtn.style.background = s.readout ? ACTIVE : IDLE;
+        this._readoutBtn.textContent = s.readout ? 'On' : 'Off';
     }
 
     dispose() {
