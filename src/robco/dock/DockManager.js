@@ -40,11 +40,12 @@ const PANEL_DEFS = {
     view:      { title: 'View',            icon: 'view',      dock: 'left',  order: 1 },
     setup:     { title: 'Setup',           icon: 'setup',     dock: 'left',  order: 2 },
     render:    { title: 'Render Settings', icon: 'render',    dock: 'left',  order: 3 },
-    tools:     { title: 'RobFlow Tools',   icon: 'tools',     dock: 'right', order: 0 },
-    camera:    { title: 'Camera',          icon: 'camera',    dock: 'right', order: 1 },
-    waypoints: { title: 'Waypoints',       icon: 'waypoints', dock: 'right', order: 2 },
-    stream:    { title: 'Stream Rate',     icon: 'stream',    dock: 'right', order: 3 },
-    blender:   { title: 'Blender Export',  icon: 'blender',   dock: 'right', order: 4 },
+    gizmo:     { title: 'Gizmo',           icon: 'gizmo',     dock: 'right', order: 0 },
+    tools:     { title: 'RobFlow Tools',   icon: 'tools',     dock: 'right', order: 1 },
+    camera:    { title: 'Camera',          icon: 'camera',    dock: 'right', order: 2 },
+    waypoints: { title: 'Waypoints',       icon: 'waypoints', dock: 'right', order: 3 },
+    stream:    { title: 'Stream Rate',     icon: 'stream',    dock: 'right', order: 4 },
+    blender:   { title: 'Blender Export',  icon: 'blender',   dock: 'right', order: 5 },
     dynamics:  { title: 'Joint Dynamics',  icon: 'dynamics',  dock: 'float', order: 0 },
 };
 

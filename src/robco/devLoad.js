@@ -77,6 +77,13 @@ function addSessionPanel(app) {
         .catch((e) => console.warn('[RobCo] session panel failed to load:', e));
 }
 
+// Gizmo options panel (space / handle sets / snap …) — its own dock tab, independent of any robot.
+function addGizmoPanel() {
+    import('./GizmoPanel.js')
+        .then(({ GizmoPanel }) => GizmoPanel.ensure())
+        .catch((e) => console.warn('[RobCo] gizmo panel failed to load:', e));
+}
+
 // Auto-reconnect the last working session on a plain reload (no ?robco= mode).
 // A still-valid saved token lets us re-derive the CURRENT session SID — the stored SID can
 // go stale when the cloud session is re-provisioned, which is why a reload would otherwise
@@ -129,6 +136,7 @@ export async function maybeLoadRobCo(app) {
     }
     addConnectButton(app);
     addSessionPanel(app);
+    addGizmoPanel();
     if (!params.has('robco')) {
         // Prefer an explicitly saved workspace snapshot (full scene: robot, waypoints, tool,
         // settings, camera). If none, fall back to reconnecting the last live RobFlow session.

@@ -71,16 +71,13 @@ export class SetupPanel {
         root.append(body);
         this._body = body;
 
-        // shared gizmo bar: toggle either handle set of the combined gizmo, then Done.
+        // While a section is being aligned, show a Done button to end editing. The gizmo's own
+        // options (move/rotate handles, world/local space, …) live in the dedicated Gizmo panel.
         this._modeBar = el('div', 'display:none;gap:6px;margin:4px 0;align-items:center;');
-        this._modeBar.append(el('span', 'opacity:.7;', 'gizmo:'));
-        this._moveBtn = el('button', BTN, 'move');
-        this._rotBtn = el('button', BTN, 'rot');
-        this._moveBtn.addEventListener('click', () => this._togglePart('translate'));
-        this._rotBtn.addEventListener('click', () => this._togglePart('rotate'));
+        this._modeBar.append(el('span', 'opacity:.7;', 'editing —'));
         const done = el('button', BTN, 'done');
         done.addEventListener('click', () => this._stopEdit());
-        this._modeBar.append(this._moveBtn, this._rotBtn, done);
+        this._modeBar.append(done);
 
         body.append(this._modeBar); // shared gizmo bar on top — visible whichever section edits
         this.addSection(this._buildBaseSection(), { title: 'Base position (in cell)', key: 'base' });
@@ -140,16 +137,12 @@ export class SetupPanel {
         activateManipulator('setup-gizmo'); // turn off teach gizmo / FK drag
         const tc = this._ensureGizmo();
         tc.attach(target);
-        // The combined gizmo covers translate + rotate; a 'scale' mode (Scene Objects / Materials)
-        // is handled by their numeric fields, not the gizmo. Show whichever of move/rot this target allows.
-        this._allowTranslate = modes.includes('translate');
-        this._allowRotate = modes.includes('rotate');
-        tc.setParts(this._allowTranslate, this._allowRotate);
+        // `modes` (translate/rotate/scale) is legacy: handle visibility + space now come from the
+        // shared Gizmo settings, applied by the gizmo itself. Scale stays on the numeric fields.
         tc.setEnabled(true);
         this._editing = name;
         this._onGizmo = onChange;
         this._modeBar.style.display = 'flex';
-        this._setPartsUI();
         this.sm.redraw?.();
     }
 
@@ -161,28 +154,6 @@ export class SetupPanel {
         if (this.sm?.controls) this.sm.controls.enabled = true; // never leave orbit disabled
         deactivateManipulator('setup-gizmo');
         this.sm.redraw?.();
-    }
-
-    /** Toggle one handle set of the combined gizmo (respecting what this target allows). */
-    _togglePart(part) {
-        if (!this._tc) return;
-        let showT = this._tc.showTranslate;
-        let showR = this._tc.showRotate;
-        if (part === 'translate' && this._allowTranslate) showT = !showT;
-        if (part === 'rotate' && this._allowRotate) showR = !showR;
-        this._tc.setParts(showT, showR);
-        this._setPartsUI();
-    }
-
-    _setPartsUI() {
-        const tc = this._tc;
-        if (!tc) return;
-        const style = (btn, on, allowed) => {
-            btn.style.background = on ? '#1f6feb' : 'rgba(255,255,255,0.06)';
-            btn.style.opacity = allowed ? '1' : '0.3';
-        };
-        style(this._moveBtn, tc.showTranslate, this._allowTranslate);
-        style(this._rotBtn, tc.showRotate, this._allowRotate);
     }
 
     // --- Base section --------------------------------------------------

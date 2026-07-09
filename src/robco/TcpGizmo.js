@@ -19,6 +19,7 @@
  * hover/drag and re-fits its screen-constant size inside updateMatrixWorld (runs each frame).
  */
 import * as THREE from 'three';
+import { registerGizmo, unregisterGizmo } from './gizmoSettings.js';
 
 const COLORS = { X: 0xff3653, Y: 0x8adb00, Z: 0x2c8fff, hover: 0xffd24a };
 const AXIS = {
@@ -112,6 +113,13 @@ export class TcpGizmo extends THREE.Object3D {
         this._onDown = (e) => this._pointerDown(e);
         this._onMove = (e) => this._pointerMove(e);
         this._onUp = (e) => this._pointerUp(e);
+
+        // Opt-in options driven by the shared Gizmo settings (see gizmoSettings.js). Defaults
+        // reproduce today's behaviour; registering applies the current settings immediately.
+        this._snap = false;      // hold-Shift snapping (phase 2)
+        this._snapDeg = 15;
+        this._readout = false;   // live drag readout (phase 2)
+        registerGizmo(this);
     }
 
     // ---- construction -------------------------------------------------------
@@ -216,7 +224,19 @@ export class TcpGizmo extends THREE.Object3D {
 
     setSpace(space) { this.space = space === 'local' ? 'local' : 'world'; this._redraw?.(); }
 
+    /** Apply the shared Gizmo settings (called by gizmoSettings on register + every change). */
+    applySettings(s) {
+        this.setSpace(s.space);
+        this.setParts(s.showTranslate, s.showRotate);
+        this._snap = !!s.snap;
+        this._snapDeg = s.snapDeg || 15;
+        this._readout = !!s.readout;
+        // s.screenHandle / s.ringFade land in later phases.
+        this._redraw?.();
+    }
+
     dispose() {
+        unregisterGizmo(this);
         this._removeListeners();
         this._endHoverAndDrag(); // clear hover/drag (touches mat.color) BEFORE disposing materials
         this._refreshOrbit();    // never leave OrbitControls stuck disabled after teardown

@@ -60,7 +60,6 @@ export class RobFlowToolsPanel {
             // onIk fires on a gizmo drag (the TCP moved) — show the new IK readout and drop any
             // configuration list, which was enumerated for the previous TCP and is now stale.
             teach.onIk = (res) => { this._setIk(res); this._clearPoses(); };
-            teach.onPartsChange = (p) => this._setParts(p);
             // Keep the Teach button in sync when the arbiter turns the gizmo off.
             teach.onEnabledChange = (on) => this._teachVisible(on);
             if (this.client) this._buildJogRows(teach.jointNames);
@@ -130,10 +129,9 @@ export class RobFlowToolsPanel {
         root.append(sectionTitle('Teach Pendant'));
         const teachRow = el('div', 'display:flex;gap:6px;flex-wrap:wrap;');
         this._teachBtn = el('button', BTN, 'Teach: OFF');
-        this._moveBtn = el('button', BTN + 'display:none;', 'Move (W)');
-        this._rotBtn = el('button', BTN + 'display:none;', 'Rotate (E)');
         this._findBtn = el('button', BTN + 'display:none;', 'Find poses');
-        teachRow.append(this._teachBtn, this._moveBtn, this._rotBtn, this._findBtn);
+        // Move/Rotate handle toggles + space now live in the dedicated Gizmo panel (GizmoPanel.js).
+        teachRow.append(this._teachBtn, this._findBtn);
         root.append(teachRow);
         this._ik = el('div', 'margin-top:6px;font-size:11px;color:#9da7b3;min-height:16px;');
         root.append(this._ik);
@@ -142,8 +140,6 @@ export class RobFlowToolsPanel {
         root.append(this._posesBox);
 
         this._teachBtn.addEventListener('click', () => this._toggleTeach());
-        this._moveBtn.addEventListener('click', () => this.teach?.toggleTranslate());
-        this._rotBtn.addEventListener('click', () => this.teach?.toggleRotate());
         this._findBtn.addEventListener('click', () => this._findPoses());
 
         // --- Send (needs client) ---
@@ -384,8 +380,6 @@ export class RobFlowToolsPanel {
 
     // --- teach ----------------------------------------------------------
     _teachVisible(on) {
-        this._moveBtn.style.display = on ? 'inline-block' : 'none';
-        this._rotBtn.style.display = on ? 'inline-block' : 'none';
         this._findBtn.style.display = on ? 'inline-block' : 'none';
         this._sendBox.style.display = on && this.client ? 'block' : 'none';
         this._ik.style.display = on ? 'block' : 'none';
@@ -398,12 +392,6 @@ export class RobFlowToolsPanel {
         const on = !this.teach.enabled;
         this.teach.setEnabled(on);
         this._teachVisible(on);
-        if (on) this._setParts({ translate: this.teach.showTranslate, rotate: this.teach.showRotate });
-    }
-    // Highlight each toggle independently — both lit (the default) = the combined gizmo.
-    _setParts(p) {
-        this._moveBtn.style.background = p.translate ? '#1f6feb' : 'rgba(255,255,255,0.06)';
-        this._rotBtn.style.background = p.rotate ? '#1f6feb' : 'rgba(255,255,255,0.06)';
     }
     _setIk(res) {
         this._ik.textContent = res.converged

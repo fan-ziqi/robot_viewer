@@ -12,6 +12,7 @@
  */
 import * as THREE from 'three';
 import { TcpGizmo } from './TcpGizmo.js';
+import { get as gizmoGet, set as gizmoSet } from './gizmoSettings.js';
 import { MujocoKinematics } from '../dynamics/MujocoKinematics.js';
 import { ROBCO_AXIS_LIMIT_DEG } from './robcoLimits.js';
 import { registerManipulator, activateManipulator } from './manipulators.js';
@@ -73,9 +74,6 @@ export class TeachPendant {
         this.sm = app.sceneManager;
         this.jointNames = model.userData.jointOrder;
         this.enabled = false;
-        // Combined gizmo: both handle sets shown by default. Toggles can hide either, never both.
-        this.showTranslate = true;
-        this.showRotate = true;
         this.onIk = null; // (res) => void
         this.toolOffset = null; // Matrix4 flange→tool-tip when a tool defines the TCP, else null
 
@@ -98,8 +96,10 @@ export class TeachPendant {
 
         this._onKey = (e) => {
             if (!this.enabled) return;
-            if (e.key === 'w' || e.key === 'W') this.toggleTranslate();
-            else if (e.key === 'e' || e.key === 'E') this.toggleRotate();
+            // W/E toggle the handle sets through the shared Gizmo settings, so the Gizmo panel and
+            // every gizmo stay in sync.
+            if (e.key === 'w' || e.key === 'W') gizmoSet({ showTranslate: !gizmoGet().showTranslate });
+            else if (e.key === 'e' || e.key === 'E') gizmoSet({ showRotate: !gizmoGet().showRotate });
         };
 
         // Arbiter: another manipulator activating turns this gizmo off.
@@ -388,21 +388,6 @@ export class TeachPendant {
         const res = this._solveTip(m4, seedDeg);
         return { deg: res.q.map((r) => (r * 180) / Math.PI), converged: res.converged, posErr: res.posErr };
     }
-
-    /**
-     * Show/hide the two handle sets of the combined gizmo. At least one set always stays live so
-     * the gizmo can't vanish. Both on (the default) = the combined translate+rotate gizmo.
-     */
-    setParts(showTranslate, showRotate) {
-        this.gizmo.setParts(showTranslate, showRotate);
-        // Read back the gizmo's clamped state (it never lets both sets turn off).
-        this.showTranslate = this.gizmo.showTranslate;
-        this.showRotate = this.gizmo.showRotate;
-        this.onPartsChange?.({ translate: this.showTranslate, rotate: this.showRotate });
-    }
-
-    toggleTranslate() { this.setParts(!this.showTranslate, this.showRotate); }
-    toggleRotate() { this.setParts(this.showTranslate, !this.showRotate); }
 
     setEnabled(on) {
         this.enabled = on;
