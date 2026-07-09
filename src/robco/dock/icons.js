@@ -17,6 +17,7 @@ const ICONS = {
     dynamics: `<path d="M2 13.5h12"/><path d="M2.5 11.5c2-.5 3-6 4.5-6s2 3.6 3.5 3.6 2-1.8 3.5-2"/>`,
     blender: `<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5 3v10M11 3v10"/><path d="M2 6h3M2 10h3M11 6h3M11 10h3"/>`,
     singularity: `<path d="M8 1.8 14.6 13.4H1.4z"/><path d="M8 6v3.2"/><path d="M8 11.4v.1"/>`,
+    gizmo: `<path d="M8 4v8M4 8h8"/><path d="M8 2.6 6.8 4.2M8 2.6 9.2 4.2M8 13.4 6.8 11.8M8 13.4 9.2 11.8M2.6 8 4.2 6.8M2.6 8 4.2 9.2M13.4 8 11.8 6.8M13.4 8 11.8 9.2"/>`,
     // generic fallback panel icon
     panel: `<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 5.5h12"/>`,
     // chrome / menu icons

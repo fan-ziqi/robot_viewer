@@ -5,11 +5,14 @@
  * the model root -> full 6-DOF DLS IK (MujocoKinematics) -> joint angles applied so the arm
  * follows. UI (buttons, send, status) lives in RobFlowToolsPanel, which drives this engine.
  *
- * Modes: 'translate' / 'rotate' (all 3 axes). While enabled it sets app._teachActive so the
- * live WS mirror pauses (no fight with drags).
+ * Combined gizmo: translate arrows + rotate rings shown together via a custom single-raycaster
+ * gizmo (see TcpGizmo) — one gesture = one handle, so translate and rotate never fire together.
+ * The Move/Rotate toggles (or W/E keys) hide either set; at least one always stays live. While
+ * enabled it sets app._teachActive so the live WS mirror pauses (no fight with drags).
  */
 import * as THREE from 'three';
-import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { TcpGizmo } from './TcpGizmo.js';
+import { get as gizmoGet, set as gizmoSet } from './gizmoSettings.js';
 import { MujocoKinematics } from '../dynamics/MujocoKinematics.js';
 import { ROBCO_AXIS_LIMIT_DEG } from './robcoLimits.js';
 import { registerManipulator, activateManipulator } from './manipulators.js';
@@ -71,7 +74,6 @@ export class TeachPendant {
         this.sm = app.sceneManager;
         this.jointNames = model.userData.jointOrder;
         this.enabled = false;
-        this.mode = 'translate';
         this.onIk = null; // (res) => void
         this.toolOffset = null; // Matrix4 flange→tool-tip when a tool defines the TCP, else null
 
@@ -79,22 +81,25 @@ export class TeachPendant {
         this._setTargetToTcp();
         this.sm.scene.add(this.target);
 
-        const tc = new TransformControls(this.sm.camera, this.sm.renderer.domElement);
-        tc.setMode('translate');
-        tc.setSpace('world');
-        tc.setSize(0.8);
-        tc.addEventListener('dragging-changed', (e) => { this.sm.controls.enabled = !e.value; });
-        tc.addEventListener('objectChange', () => this._onDrag());
-        tc.attach(this.target);
-        tc.visible = false;
-        tc.enabled = false;
-        this.sm.scene.add(tc);
-        this.tc = tc;
+        // Combined translate+rotate gizmo (custom, single raycaster — see TcpGizmo). 'change'
+        // fires once per transform → run IK; the gizmo disables OrbitControls itself while a
+        // handle is hovered/dragged, and repaints through the on-demand redraw.
+        this.gizmo = new TcpGizmo({
+            camera: this.sm.camera,
+            domElement: this.sm.renderer.domElement,
+            orbit: this.sm.controls,
+            redraw: () => this.sm.redraw?.(),
+        });
+        this.gizmo.attach(this.target);
+        this.gizmo.addEventListener('change', () => this._onDrag());
+        this.sm.scene.add(this.gizmo);
 
         this._onKey = (e) => {
             if (!this.enabled) return;
-            if (e.key === 'w' || e.key === 'W') this.setMode('translate');
-            else if (e.key === 'e' || e.key === 'E') this.setMode('rotate');
+            // W/E toggle the handle sets through the shared Gizmo settings, so the Gizmo panel and
+            // every gizmo stay in sync.
+            if (e.key === 'w' || e.key === 'W') gizmoSet({ showTranslate: !gizmoGet().showTranslate });
+            else if (e.key === 'e' || e.key === 'E') gizmoSet({ showRotate: !gizmoGet().showRotate });
         };
 
         // Arbiter: another manipulator activating turns this gizmo off.
@@ -384,17 +389,10 @@ export class TeachPendant {
         return { deg: res.q.map((r) => (r * 180) / Math.PI), converged: res.converged, posErr: res.posErr };
     }
 
-    setMode(mode) {
-        this.mode = mode;
-        this.tc.setMode(mode);
-        this.onModeChange?.(mode);
-    }
-
     setEnabled(on) {
         this.enabled = on;
         this.app._teachActive = on;
-        this.tc.visible = on;
-        this.tc.enabled = on;
+        this.gizmo.setEnabled(on);
         if (on) {
             activateManipulator('teach'); // turn off the Setup gizmo / FK drag
             this._setTargetToTcp();
@@ -408,9 +406,8 @@ export class TeachPendant {
 
     dispose() {
         window.removeEventListener('keydown', this._onKey);
-        this.tc?.detach();
-        this.tc?.dispose?.();
-        this.tc?.parent?.remove(this.tc);
+        this.gizmo?.dispose();
+        if (this.sm?.controls) this.sm.controls.enabled = true; // never leave orbit disabled on teardown
         this.target?.parent?.remove(this.target);
         this.kin?.dispose();
     }
