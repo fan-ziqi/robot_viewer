@@ -174,7 +174,7 @@ export function scanCartesianPath(kin, startPose, endPose, opts = {}) {
         const q = ik.q;
         const J = kin.jacobian(q);
         const metrics = singularityMetrics(J);
-        const cls = ik.converged ? classifySingularity(metrics.manipulability) : 'unreachable';
+        const cls = ik.converged ? classifySingularity(metrics.manipulability, J[0].length) : 'unreachable';
 
         // Velocity headroom.
         let slowdown = null, dqRatio = null, jointSat = -1;

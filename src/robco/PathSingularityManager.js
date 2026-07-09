@@ -171,7 +171,7 @@ export class PathSingularityManager {
             const q = m.joints.map((d) => d * D2R);
             let metrics;
             try { metrics = singularityMetrics(kin.jacobian(q)); } catch { continue; }
-            const cls = classifySingularity(metrics.manipulability);
+            const cls = classifySingularity(metrics.manipulability, kin.nq);
             out.push({ id: m.id, name: m.name, class: cls, manipulability: metrics.manipulability, reciprocalCondition: metrics.reciprocalCondition });
             if (this.opts.showWaypointFlags && cls !== 'ok') this._addWaypointHalo(m, cls);
         }

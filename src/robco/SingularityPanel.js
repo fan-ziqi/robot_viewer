@@ -23,7 +23,7 @@ const NUM = 'background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255
     'color:#e6edf3;padding:2px 4px;font:inherit;text-align:right;width:56px;';
 
 const CLASS_COLOR = { ok: '#2ea043', warn: '#e3873a', fault: '#f85149', unreachable: '#8957e5' };
-const CLASS_LABEL = { ok: 'OK', warn: 'WARN', fault: 'FAULT', unreachable: 'UNREACH' };
+const CLASS_LABEL = { ok: 'OK', warn: 'WARN', fault: 'SINGULAR', unreachable: 'UNREACH' };
 
 function el(tag, css, text) {
     const e = document.createElement(tag);
@@ -99,7 +99,7 @@ export class SingularityPanel {
         enableRow.append(this._enableCb, el('span', null, 'Enable analysis'));
         body.append(enableRow);
         body.append(el('div', 'font-size:10.5px;color:#8b98a5;margin:0 0 4px;',
-            'Scans the straight (LIN) path between cartesian waypoints and flags where the arm approaches a singularity or must slow down. Predicts controller behaviour offline.'));
+            'Scans the straight (LIN) path between cartesian waypoints and flags where the arm nears a singularity or must slow down. WARN = controller degrading path tracking (σ<0.04); SINGULAR = at the singularity limit (σ<0.005) — a programmed move damps & stalls here, only a manual jog hard-faults. Offline prediction; ≥6-axis arms only.'));
         this._status = el('div', 'font-size:11px;color:#9da7b3;min-height:14px;margin:4px 0;', 'Off.');
         body.append(this._status);
 

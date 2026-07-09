@@ -3,10 +3,14 @@
  * viewer's warnings predict real robot behaviour.
  *
  * The controller (robcontrol, RobotModel::is_close_to_singularity) uses the Yoshikawa
- * manipulability index σ = √det(J·Jᵀ) and faults a Cartesian move when σ < 0.005; its DLS IK
- * already ramps up damping and ramps path-tracking gain toward zero below ~0.01. We reproduce the
- * same index and the same two thresholds here. For a square 6×6 arm σ = |det J|; for a redundant
- * (>6 DOF) arm σ = √det(J·Jᵀ); for <6 DOF σ = √det(Jᵀ·J) (the controller's convention).
+ * manipulability index σ = √det(J·Jᵀ). At σ < 0.005 (singularity_index_limit) a move is at the
+ * singularity — but that only HARD-faults (close_to_singularity) while jogging; a programmed LIN or
+ * streamed move instead fully damps (DLS) and the joint-velocity time-scaling stalls it. Path
+ * tracking is already degrading earlier: the DLS ramps the path-correction gain down starting at
+ * 4·ε = 0.04, reaching gain = 0 by ε = 0.01. So we flag fault < 0.005 and warn < 0.04. The index is
+ * only meaningful for ≥6-axis arms (the controller returns 1.0 — never singular — for fewer). For a
+ * square 6×6 arm σ = |det J|; for a redundant (>6 DOF) arm σ = √det(J·Jᵀ); the metric uses Jᵀ·J for
+ * the <6 case but classifySingularity does not flag it, matching the controller.
  *
  * IMPORTANT: J must carry translation rows in METRES (rad in the angular rows) for the 0.005
  * threshold to mean anything — MujocoKinematics.jacobian() already returns metre units.
@@ -14,10 +18,19 @@
  * Pure JS, no dependencies, so scripts/ can import it headlessly.
  */
 
-/** Controller singularity index below which a Cartesian move FAULTS (gbl_prop::singularity_index_limit). */
+/**
+ * σ at the controller's singularity_index_limit. NB this is a HARD fault (close_to_singularity)
+ * ONLY while jogging (cartesian_space_motion `check_singularity_index`, set true only in
+ * jogging.cpp). A programmed LIN or streamed move leaves the check OFF — it does NOT fault; the DLS
+ * fully damps and the joint-velocity time-scaling stalls the move instead.
+ */
 export const SINGULARITY_FAULT_INDEX = 0.005;
-/** Index below which the controller's DLS heavily damps / degrades path tracking (IK epsilon). */
-export const SINGULARITY_WARN_INDEX = 0.01;
+/**
+ * σ below which the controller has begun degrading path tracking. The DLS schedule
+ * (cartesian_space_motion.cpp) starts ramping the path-correction gain DOWN at 4·ε = 0.04 and
+ * reaches gain = 0 + full damping at ε = 0.01 — so degradation is already underway by 0.04.
+ */
+export const SINGULARITY_WARN_INDEX = 0.04;
 
 /**
  * Eigen-decomposition of a small real SYMMETRIC matrix via cyclic Jacobi rotations.
@@ -139,9 +152,15 @@ export function singularityMetrics(J) {
 /**
  * Classify a manipulability index against the controller thresholds.
  * @param {number} manipulability - σ from {@link singularityMetrics}.
- * @returns {'ok'|'warn'|'fault'} 'fault' = controller stops the move; 'warn' = degraded tracking.
+ * @param {number} [nAxes=6] - actuated joint count. The controller only evaluates the singularity
+ *   index for arms with ≥6 axes — is_close_to_singularity returns 1.0 (never singular) for fewer —
+ *   so we never flag an under-6-DOF arm, matching real robot behaviour.
+ * @returns {'ok'|'warn'|'fault'} 'fault' = at the singularity_index_limit (a manual jog hard-faults;
+ *   a programmed/streamed move instead damps + stalls); 'warn' = the controller is degrading path
+ *   tracking (path-correction gain ramping toward 0).
  */
-export function classifySingularity(manipulability) {
+export function classifySingularity(manipulability, nAxes = 6) {
+    if (nAxes < 6) return 'ok'; // controller does not monitor the manipulability index below 6 axes
     if (manipulability < SINGULARITY_FAULT_INDEX) return 'fault';
     if (manipulability < SINGULARITY_WARN_INDEX) return 'warn';
     return 'ok';
