@@ -131,6 +131,12 @@ export class ViewPanel {
         const grid = this.sm.referenceGrid || this.sm.environmentManager?.referenceGrid;
         body.append(this._check('Reference grid', (on) => this._setGridVisible(on), grid ? grid.visible !== false : true, 'grid'));
 
+        // Rendering — keep drawing while the window is inactive/backgrounded (e.g. for a
+        // popped-out camera view on another monitor). Persisted in SceneManager.
+        body.append(title('Rendering'));
+        body.append(this._check('Render in background', (on) => this.sm.setRenderInBackground?.(on),
+            this.sm.getRenderInBackground?.() ?? false, 'renderBg'));
+
         // Trace — draw the path the TCP sweeps (any motion source). Engine lives on the global,
         // created with the teach pendant (same lazy pattern as the Waypoints toggle above).
         body.append(title('Trace'));
