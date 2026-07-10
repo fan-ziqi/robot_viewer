@@ -43,6 +43,12 @@ export class SceneManager {
         this.camera.position.set(2, 2, 2);
         this.camera.lookAt(0, 0, 0);
 
+        // Projection mode. We keep this single PerspectiveCamera at all times — OrbitControls,
+        // the post-FX passes, gizmos and drag controls all hold a reference to it — and fake
+        // orthographic projection by overriding its projection matrix each frame (see
+        // _applyOrthographicProjection / _renderFrame). Toggled by the View-cube overlay.
+        this.projectionMode = 'perspective';
+
         // Renderer
         this.renderer = new THREE.WebGLRenderer({
             canvas: canvas,
@@ -229,6 +235,11 @@ export class SceneManager {
      * back to a plain renderer.render(). Single choke point for all rendering.
      */
     _renderFrame() {
+        // Orthographic mode: re-derive the ortho projection matrix from the live framing right
+        // before drawing. Doing it here (the single render choke point) means it survives any
+        // updateProjectionMatrix() OrbitControls issued this frame and flows through the post-FX
+        // composer unchanged, since neither renderer.render nor the composer touch the matrix.
+        if (this.projectionMode === 'orthographic') this._applyOrthographicProjection();
         if (!(this.postFX && this.postFX.render())) {
             this.renderer.render(this.scene, this.camera);
         }
@@ -560,6 +571,38 @@ export class SceneManager {
         this.camera.updateProjectionMatrix();
 
         this.redraw();
+    }
+
+    /**
+     * Switch the main view between true perspective and (faked) orthographic projection.
+     * The camera object never changes — only how its projection matrix is computed — so every
+     * consumer that caches a reference (OrbitControls, post-FX, gizmos, drag controls) keeps
+     * working. Emits 'projectionChanged' with the new mode.
+     * @param {'perspective'|'orthographic'} mode
+     */
+    setProjectionMode(mode) {
+        const next = mode === 'orthographic' ? 'orthographic' : 'perspective';
+        if (next === this.projectionMode) return;
+        this.projectionMode = next;
+        // Leaving ortho: restore the genuine perspective projection matrix immediately.
+        if (next === 'perspective') this.camera.updateProjectionMatrix();
+        this.emit('projectionChanged', next);
+        this.redraw();
+    }
+
+    /**
+     * Recompute the orthographic projection matrix from the current framing (called every frame
+     * while in orthographic mode). The frustum height is derived from the live camera→target
+     * distance and the camera's fov, so switching modes preserves the framing at the orbit pivot
+     * and orbit/dolly/zoom all keep behaving naturally.
+     */
+    _applyOrthographicProjection() {
+        const cam = this.camera;
+        const dist = cam.position.distanceTo(this.controls.target);
+        const halfH = Math.max(1e-4, dist * Math.tan((cam.fov * Math.PI / 180) / 2));
+        const halfW = halfH * cam.aspect;
+        cam.projectionMatrix.makeOrthographic(-halfW, halfW, halfH, -halfH, cam.near, cam.far);
+        cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
     }
 
     /**
