@@ -630,19 +630,22 @@ export class WaypointsPanel {
     async _push(run) {
         if (!this.client) { this._status.textContent = 'no connection — open Connect first'; return; }
         if (this.store.items.length === 0) { this._status.textContent = 'nothing to push'; return; }
-        const { steps, unreachable, noPose, clampedBlend } = this._buildSteps();
-        if (unreachable.length) {
-            this._status.textContent = `unreachable from this base: ${unreachable.join(', ')} — reposition base or switch to cartesian`;
-            return;
-        }
-        if (noPose.length) {
-            this._status.textContent = `no usable pose for: ${noPose.join(', ')} — remove or re-capture those steps`;
-            return;
-        }
-        if (!steps.length) { this._status.textContent = 'nothing pushable'; return; }
-        const name = this._flowName.value || 'Viewer Flow';
         this._setBusy(true);
         try {
+            // Inside the try: during a robot-config rebuild `teach` can briefly reference a
+            // disposed kinematics instance and _buildSteps throws — surface that as a status
+            // message instead of an uncaught error that makes the button silently do nothing.
+            const { steps, unreachable, noPose, clampedBlend } = this._buildSteps();
+            if (unreachable.length) {
+                this._status.textContent = `unreachable from this base: ${unreachable.join(', ')} — reposition base or switch to cartesian`;
+                return;
+            }
+            if (noPose.length) {
+                this._status.textContent = `no usable pose for: ${noPose.join(', ')} — remove or re-capture those steps`;
+                return;
+            }
+            if (!steps.length) { this._status.textContent = 'nothing pushable'; return; }
+            const name = this._flowName.value || 'Viewer Flow';
             const { flow } = buildSequenceFlow(name, steps, { flowUuid: this._currentFlowUuid || undefined });
             let uuid = flow.uuid;
             if (this._currentFlowUuid) {
@@ -702,20 +705,27 @@ export class WaypointsPanel {
 
     /**
      * Start (or restart) a run. Our flows loop forever, so a prior run is usually still active —
-     * stop first to clear FLOW_CONTINUOUS_RUNNING (else /run → 409), re-assert operational, reset
-     * the cycle meter, then run. Retries once if the robot was still mid-stop.
+     * stop first to clear FLOW_CONTINUOUS_RUNNING, re-assert operational, reset the cycle meter,
+     * then run. /run keeps 409ing until the controller actually leaves the 2xx flow operationMode,
+     * which is asynchronous and can take well over half a second on a real arm — and there is no
+     * REST endpoint to poll the state (it only streams over the WS) — so retry the 409 with
+     * backoff instead of one blind delay.
      */
     async _beginRun(uuid) {
         await this.client.stop().catch(() => {});
         await this.client.setDesiredRobotState(2).catch(() => {});
         this.cycleTimer?.reset();
-        try {
-            await this.client.runFlow(uuid);
-        } catch (e) {
-            if (!/\b409\b/.test(e.message)) throw e;
-            await new Promise((r) => setTimeout(r, 500));
-            await this.client.setDesiredRobotState(2).catch(() => {});
-            await this.client.runFlow(uuid);
+        const delays = [300, 600, 1200, 2400]; // ms between 409 retries while the stop lands
+        for (let attempt = 0; ; attempt++) {
+            try {
+                await this.client.runFlow(uuid);
+                return;
+            } catch (e) {
+                if (!/\b409\b/.test(e.message) || attempt >= delays.length) throw e;
+                this._status.textContent = `waiting for the previous run to stop… (${attempt + 1}/${delays.length})`;
+                await new Promise((r) => setTimeout(r, delays[attempt]));
+                await this.client.setDesiredRobotState(2).catch(() => {});
+            }
         }
     }
 
