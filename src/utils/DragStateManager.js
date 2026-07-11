@@ -3,6 +3,7 @@
  * Used to apply forces when dragging objects during physics simulation
  */
 import * as THREE from 'three';
+import { setRayFromCamera } from './pickRay.js';
 
 export class DragStateManager {
     constructor(scene, renderer, camera, container, controls) {
@@ -75,7 +76,7 @@ export class DragStateManager {
         const rect = this.renderer.domElement.getBoundingClientRect();
         this.mousePos.x = ((x - rect.left) / rect.width) * 2 - 1;
         this.mousePos.y = -((y - rect.top) / rect.height) * 2 + 1;
-        this.raycaster.setFromCamera(this.mousePos, this.camera);
+        setRayFromCamera(this.raycaster, this.mousePos, this.camera);
     }
 
     start(x, y) {

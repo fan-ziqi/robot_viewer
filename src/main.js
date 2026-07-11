@@ -16,6 +16,7 @@ import { MeasurementController } from './controllers/MeasurementController.js';
 import { USDViewerManager } from './renderer/USDViewerManager.js';
 import { MujocoSimulationManager } from './renderer/MujocoSimulationManager.js';
 import { i18n } from './utils/i18n.js';
+import { setRayFromCamera } from './utils/pickRay.js';
 
 // Expose d3 globally for PanelManager
 window.d3 = d3;
@@ -607,7 +608,7 @@ class App {
                 mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
                 mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-                raycaster.setFromCamera(mouse, this.sceneManager.camera);
+                setRayFromCamera(raycaster, mouse, this.sceneManager.camera);
                 const intersects = raycaster.intersectObjects(this.sceneManager.scene.children, true);
 
                 const modelIntersects = intersects.filter(intersect => {

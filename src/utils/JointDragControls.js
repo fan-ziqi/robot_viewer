@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MathUtils } from './MathUtils.js';
+import { setRayFromCamera } from './pickRay.js';
 
 /**
  * Universal joint drag control system
@@ -435,7 +436,7 @@ export class PointerJointDragControls extends JointDragControls {
         this._mouseDown = e => {
             if (e.button !== 0) return;
             updateMouse(e);
-            raycaster.setFromCamera(mouse, this.camera);
+            setRayFromCamera(raycaster, mouse, this.camera);
 
             // Only grab if actually clicking on the model
             // Check if ray intersects with the model before disabling camera controls
@@ -505,14 +506,14 @@ export class PointerJointDragControls extends JointDragControls {
 
         this._mouseMove = e => {
             updateMouse(e);
-            raycaster.setFromCamera(mouse, this.camera);
+            setRayFromCamera(raycaster, mouse, this.camera);
             this.moveRay(raycaster.ray);
         };
 
         this._mouseUp = e => {
             if (e.button !== 0) return;
             updateMouse(e);
-            raycaster.setFromCamera(mouse, this.camera);
+            setRayFromCamera(raycaster, mouse, this.camera);
             this.moveRay(raycaster.ray);
             this.setGrabbed(false);
         };

@@ -20,6 +20,7 @@
  */
 import * as THREE from 'three';
 import { registerGizmo, unregisterGizmo } from './gizmoSettings.js';
+import { setRayFromCamera } from '../utils/pickRay.js';
 
 const COLORS = { X: 0xff3653, Y: 0x8adb00, Z: 0x2c8fff, hover: 0xffd24a, screen: 0xcfd8e3 };
 const AXIS = {
@@ -364,7 +365,7 @@ export class TcpGizmo extends THREE.Object3D {
     _pick() {
         const active = this._pickers.filter((p) => this._partShown(p.userData.record));
         if (!active.length) return null;
-        this._raycaster.setFromCamera(this._ptr, this.camera);
+        setRayFromCamera(this._raycaster, this._ptr, this.camera);
         let hits = this._raycaster.intersectObjects(active, false);
         if (!hits.length) return null;
         // Drop plane handles seen too edge-on — they're near-invisible slivers there and dragging in
@@ -415,7 +416,7 @@ export class TcpGizmo extends THREE.Object3D {
         this._dragAxis.copy(this._worldAxis(hit));
         this._setupPlane(hit);
 
-        this._raycaster.setFromCamera(this._ptr, this.camera);
+        setRayFromCamera(this._raycaster, this._ptr, this.camera);
         if (!this._raycaster.ray.intersectPlane(this._plane, this._startHit)) {
             // Degenerate view (plane edge-on) — abort this gesture cleanly.
             this._dragging = false; this._active = null;
@@ -494,7 +495,7 @@ export class TcpGizmo extends THREE.Object3D {
     }
 
     _drag() {
-        this._raycaster.setFromCamera(this._ptr, this.camera);
+        setRayFromCamera(this._raycaster, this._ptr, this.camera);
         const now = this._tmp;
         if (!this._raycaster.ray.intersectPlane(this._plane, now)) return;
         const axis = this._dragAxis;

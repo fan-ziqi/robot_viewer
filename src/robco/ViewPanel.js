@@ -10,6 +10,7 @@
  *   Screenshot  : save the canvas as a PNG
  */
 import * as THREE from 'three';
+import { setRayFromCamera } from '../utils/pickRay.js';
 import { ModelLoaderFactory } from '../loaders/ModelLoaderFactory.js';
 import { makeDraggable, makeCollapsible } from './draggable.js';
 import { registerManipulator, activateManipulator, deactivateManipulator } from './manipulators.js';
@@ -234,7 +235,7 @@ export class ViewPanel {
                 const r = dom.getBoundingClientRect();
                 mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
                 mouse.y = -((e.clientY - r.top) / r.height) * 2 + 1;
-                raycaster.setFromCamera(mouse, this.sm.camera);
+                setRayFromCamera(raycaster, mouse, this.sm.camera);
                 const model = this._model();
                 if (!model?.threeObject) return;
                 const hits = raycaster.intersectObject(model.threeObject, true);

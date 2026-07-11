@@ -18,6 +18,7 @@
  * are pre-selected on import.
  */
 import * as THREE from 'three';
+import { setRayFromCamera } from '../utils/pickRay.js';
 import { autoMatch, collectParts, tintNodes } from './mtbhEntry.js';
 import { registerManipulator, activateManipulator, deactivateManipulator } from './manipulators.js';
 
@@ -294,7 +295,7 @@ export class SceneObjects {
             ((e.clientX - rect.left) / rect.width) * 2 - 1,
             -((e.clientY - rect.top) / rect.height) * 2 + 1,
         );
-        this._ray.setFromCamera(this._ndc, this.sm.camera);
+        setRayFromCamera(this._ray, this._ndc, this.sm.camera);
         const targets = [it.root];
         for (const elItem of this._mm()?.elementsFor?.(it) || []) {
             for (const entry of elItem.entries.values()) {

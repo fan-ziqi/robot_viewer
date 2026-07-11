@@ -584,8 +584,13 @@ export class SceneManager {
         const next = mode === 'orthographic' ? 'orthographic' : 'perspective';
         if (next === this.projectionMode) return;
         this.projectionMode = next;
+        // Consumers that must know the REAL projection despite the perspective camera object
+        // (pick rays via utils/pickRay.js, GTAO depth reconstruction) branch on this stamp —
+        // camera.isPerspectiveCamera stays true by design.
+        this.camera.userData.projectionMode = next;
         // Leaving ortho: restore the genuine perspective projection matrix immediately.
         if (next === 'perspective') this.camera.updateProjectionMatrix();
+        this.postFX?.syncProjection?.(next);
         this.emit('projectionChanged', next);
         this.redraw();
     }
