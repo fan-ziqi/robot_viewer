@@ -127,13 +127,25 @@ export class SetupPanel {
             orbit: this.sm.controls,      // the gizmo disables orbit itself while hovering/dragging
             redraw: () => this.sm.redraw?.(),
         });
-        tc.addEventListener('change', () => { this._onGizmo?.(); });
+        tc.addEventListener('change', () => { this._gizmoDirty = true; this._onGizmo?.(); });
+        tc.addEventListener('dragging-changed', (e) => { if (!e.value) this._commitGizmo(); });
+        // A swallowed terminating pointer event (tab blur mid-drag) must not leave the edit
+        // uncommitted — reachability/singularity listeners would silently stay at the old pose.
+        window.addEventListener('blur', () => this._commitGizmo());
         this.sm.scene.add(tc);
         this._tc = tc;
         return tc;
     }
 
-    _edit(name, target, modes, onChange) {
+    /** Run the drag-end commit exactly once per dirty edit (drag-end, Done, target switch, blur). */
+    _commitGizmo() {
+        if (!this._gizmoDirty) return;
+        this._gizmoDirty = false;
+        this._onGizmoEnd?.();
+    }
+
+    _edit(name, target, modes, onChange, onEnd) {
+        this._commitGizmo(); // commit a still-pending edit before the gizmo switches target
         activateManipulator('setup-gizmo'); // turn off teach gizmo / FK drag
         const tc = this._ensureGizmo();
         tc.attach(target);
@@ -142,14 +154,17 @@ export class SetupPanel {
         tc.setEnabled(true);
         this._editing = name;
         this._onGizmo = onChange;
+        this._onGizmoEnd = onEnd || null;
         this._modeBar.style.display = 'flex';
         this.sm.redraw?.();
     }
 
     _stopEdit() {
         if (this._tc) this._tc.setEnabled(false);
+        this._commitGizmo(); // Done pressed mid-drag → still commit the final pose
         this._editing = null;
         this._onGizmo = null;
+        this._onGizmoEnd = null;
         this._modeBar.style.display = 'none';
         if (this.sm?.controls) this.sm.controls.enabled = true; // never leave orbit disabled
         deactivateManipulator('setup-gizmo');
@@ -182,6 +197,9 @@ export class SetupPanel {
         const editBtn = el('button', BTN, 'Drag world');
         editBtn.addEventListener('click', () =>
             this._edit('base', this.base.worldGroup, ['translate', 'rotate'],
+                // Intermediate drag frames only track the pose (readout stays live); the expensive
+                // commit (reachability IK sweep, list rebuild, singularity re-scan) runs on drag-end.
+                () => { this.base.recomputeFromWorld({ commit: false }); this._refreshBase(); },
                 () => { this.base.recomputeFromWorld(); this._refreshBase(); }));
         const resetBtn = el('button', BTN, 'Reset');
         resetBtn.addEventListener('click', () => { this.base.reset(); this._refreshBase(); });

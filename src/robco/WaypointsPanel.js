@@ -82,13 +82,20 @@ export class WaypointsPanel {
         this._bindCycleTimer();
 
         this.store.onChange = () => this._renderList();
-        this.base.onChange = () => { this.store.refreshReachability(this.teach); this._renderList(); };
+        this.base.onChange = () => this._onBaseChange();
         this.store.refreshReachability(this.teach);
+    }
+
+    /** refreshReachability ends in store._touch() → store.onChange → _renderList, so only render
+     *  directly when there is no teach pendant to sweep (the early return skips the touch). */
+    _onBaseChange() {
+        if (this.teach) this.store.refreshReachability(this.teach);
+        else this._renderList();
     }
 
     update({ teach, base, store, client, cycleTimer }) {
         if (teach) this.teach = teach;
-        if (base) { this.base = base; this.base.onChange = () => { this.store.refreshReachability(this.teach); this._renderList(); }; }
+        if (base) { this.base = base; this.base.onChange = () => this._onBaseChange(); }
         if (store) { this.store = store; this.store.onChange = () => this._renderList(); }
         if (client !== undefined) { this.client = client; this._refreshClientUi(); }
         if (cycleTimer) { this.cycleTimer = cycleTimer; this._bindCycleTimer(); }

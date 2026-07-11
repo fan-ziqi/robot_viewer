@@ -94,17 +94,19 @@ export class PathSingularityManager {
         if (this.enabled) this.scheduleRefresh();
     }
 
-    /** Decorate the store/base change hooks so an edit or base move re-runs the scan (debounced). */
+    /** Subscribe to store/base changes so an edit or base move re-runs the scan (debounced).
+     *  Uses onChanged() subscriptions — the single-slot onChange belongs to WaypointsPanel, and
+     *  decorating it was silently droppable whenever the panel re-assigned its handler. */
     _wire() {
-        if (this.store && this.store.onChange !== this._wrappedStoreOnChange) {
-            const prev = this.store.onChange;
-            this._wrappedStoreOnChange = () => { prev?.(); this.scheduleRefresh(); };
-            this.store.onChange = this._wrappedStoreOnChange;
+        if (this.store && this.store !== this._wiredStore) {
+            this._unwireStore?.();
+            this._unwireStore = this.store.onChanged(() => this.scheduleRefresh());
+            this._wiredStore = this.store;
         }
-        if (this.base && this.base.onChange !== this._wrappedBaseOnChange) {
-            const prev = this.base.onChange;
-            this._wrappedBaseOnChange = () => { prev?.(); this.scheduleRefresh(); };
-            this.base.onChange = this._wrappedBaseOnChange;
+        if (this.base && this.base !== this._wiredBase) {
+            this._unwireBase?.();
+            this._unwireBase = this.base.onChanged(() => this.scheduleRefresh());
+            this._wiredBase = this.base;
         }
     }
 
@@ -112,7 +114,9 @@ export class PathSingularityManager {
         this.enabled = !!on;
         this.group.visible = this.enabled;
         this._save();
-        if (this.enabled) { this._wire(); this.refresh(); }
+        // scheduleRefresh (not refresh): the scan can block for seconds on a bad path, so let the
+        // click handler return and the checkbox paint before the work starts.
+        if (this.enabled) { this._wire(); this.scheduleRefresh(); }
         else { this._clear(); this.lastResults = { segments: [], waypoints: [] }; this.onResults?.(this.lastResults); this.sm.redraw?.(); }
     }
     isEnabled() { return this.enabled; }
@@ -120,7 +124,7 @@ export class PathSingularityManager {
     setOptions(patch = {}) {
         this.opts = { ...this.opts, ...patch };
         this._save();
-        if (this.enabled) this.refresh();
+        if (this.enabled) this.scheduleRefresh();
     }
 
     // --- global speed: follow the live session, or a manual what-if override ------------------
@@ -143,9 +147,12 @@ export class PathSingularityManager {
     }
 
     /** The live session reported its global speed (via the WS `globalSpeed` push, 0.01..1, or null
-     *  when the session drops). Re-scans when following so the prediction tracks the real arm. */
+     *  when the session drops). Re-scans when following so the prediction tracks the real arm.
+     *  Quantized to 3 decimals so float jitter on a re-pushed value can't re-trigger the scan. */
     setSessionSpeed(v) {
-        const next = (v == null || !Number.isFinite(+v)) ? null : Math.min(1, Math.max(0.01, +v));
+        const next = (v == null || !Number.isFinite(+v))
+            ? null
+            : Math.round(Math.min(1, Math.max(0.01, +v)) * 1000) / 1000;
         if (next === this.sessionSpeed) { this.onSpeedState?.(this._speedState()); return; }
         this.sessionSpeed = next;
         this.onSpeedState?.(this._speedState());
@@ -158,7 +165,7 @@ export class PathSingularityManager {
         this.opts = { ...this.opts, speedScale: val, followSession: false };
         this._save();
         this.onSpeedState?.(this._speedState());
-        if (this.enabled) this.refresh();
+        if (this.enabled) this.scheduleRefresh();
     }
 
     /** Re-follow the live session speed (the ⟳ button), or explicitly go manual. */
@@ -166,7 +173,7 @@ export class PathSingularityManager {
         this.opts = { ...this.opts, followSession: !!on };
         this._save();
         this.onSpeedState?.(this._speedState());
-        if (this.enabled) this.refresh();
+        if (this.enabled) this.scheduleRefresh();
     }
 
     scheduleRefresh() {
@@ -381,6 +388,8 @@ export class PathSingularityManager {
 
     dispose() {
         clearTimeout(this._timer);
+        this._unwireStore?.(); this._unwireStore = null; this._wiredStore = null;
+        this._unwireBase?.(); this._unwireBase = null; this._wiredBase = null;
         this._clear();
         this.group.parent?.remove(this.group);
         if (window._robcoPathSingularity === this) window._robcoPathSingularity = null;
