@@ -138,11 +138,15 @@ export async function maybeLoadRobCo(app) {
     addSessionPanel(app);
     addGizmoPanel();
     if (!params.has('robco')) {
-        // Prefer an explicitly saved workspace snapshot (full scene: robot, waypoints, tool,
-        // settings, camera). If none, fall back to reconnecting the last live RobFlow session.
+        // Restore an explicitly saved workspace snapshot first (full scene: robot, waypoints,
+        // tool, settings, camera) — then ALWAYS try to reconnect the last live RobFlow session
+        // on top of it. The snapshot restore is a static offline build; without the reconnect,
+        // loading a session file would leave the viewer permanently offline (the staged snapshot
+        // re-restores on every reload, so this path is the only way back to a live link). The
+        // live rebuild repoints the ensure()-singleton panels, so the restored workspace survives.
         try {
             const { restoreLastSession } = await import('./sessionSnapshot.js');
-            if (await restoreLastSession(app)) return;
+            await restoreLastSession(app);
         } catch (e) {
             console.warn('[RobCo] session auto-restore failed:', e);
         }

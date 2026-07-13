@@ -28,6 +28,15 @@ const redactSid = (url) => url.replace(/session\/ws\/[^/]+/, 'session/ws/<SID>')
  */
 export async function connectLiveSession(app, opts) {
     window._robcoApp = app; // referenced by ViewPanel FK-drag to pause the live mirror
+    // ONE live link at a time: a new connect (dialog, boot auto-reconnect, Studio handoff)
+    // replaces any previous socket. Two parallel sockets to the same session fight each other —
+    // the server drops the older link, both auto-reconnect with backoff, and the status flaps
+    // green/down in an endless loop.
+    if (app._robflowSocket) {
+        console.log('[RobCo] closing the previous live connection before reconnecting');
+        try { app._robflowSocket.close(); } catch { /* ignore */ }
+        app._robflowSocket = null;
+    }
     const session = resolveSession(opts);
     console.log(`[RobCo] live ${session.mode} connect: ${redactSid(session.wsUrl)}`);
 
@@ -379,7 +388,7 @@ export async function connectLiveSession(app, opts) {
         latestGlobalSpeed = v;
         pathSingularity?.setSessionSpeed(v);
     };
-    socket.onStatus((state) => {
+    socket.onStatus((state, detail) => {
         panel.setWs(state === 'open');
         panel.setRobotLive({ connected: state === 'open' });
         // Don't average a connection gap into the rate; resume cleanly on (re)connect.
@@ -398,7 +407,10 @@ export async function connectLiveSession(app, opts) {
                 saveToken(opts.token);
             }
         } else {
-            console.log(`[RobCo] WS ${state}`);
+            // close code/reason reveal WHY the link dropped (e.g. 1006 = abnormal, kicked by peer)
+            const why = state === 'close' && detail?.code
+                ? ` (code ${detail.code}${detail.reason ? `: ${detail.reason}` : ''})` : '';
+            console.log(`[RobCo] WS ${state}${why}`);
             // Link is down — we no longer know the live global speed, so stop the singularity
             // analysis claiming to "follow" a dead session (it reverts to the manual scale). The
             // reconnect burst re-pushes `globalSpeed`; `latestGlobalSpeed` is kept only to reseed a

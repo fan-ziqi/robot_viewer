@@ -15,6 +15,8 @@ import { makeDraggable, makeCollapsible } from './draggable.js';
 import { buildSequenceFlow, flowGraphPatch } from '../transport/flowBuilder.js';
 import { parseFlow } from '../transport/flowParser.js';
 import { DEFAULT_BLEND_MM } from './waypointStore.js';
+import { TcpGizmo } from './TcpGizmo.js';
+import { registerManipulator, activateManipulator, deactivateManipulator } from './manipulators.js';
 
 const PANEL_CSS =
     'position:fixed;right:332px;top:330px;z-index:3000;width:340px;font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;' +
@@ -78,6 +80,10 @@ export class WaypointsPanel {
         this.cycleTimer = cycleTimer || null;
         this._currentFlowUuid = null; // the flow we round-trip to (loaded, or first import)
         this._dragFrom = null;
+        this._insertAfterId = null;   // step id new steps are inserted after (null = append at end)
+        this._wpEditId = null;        // waypoint currently being moved with the gizmo
+        // Arbiter: the teach gizmo / setup gizmo / FK drag activating closes this one (and vice versa).
+        registerManipulator('waypoint-gizmo', () => this._stopWpEdit());
         this._build();
         this._bindCycleTimer();
 
@@ -139,21 +145,29 @@ export class WaypointsPanel {
         flowsRow.append(this._flowSelect, refreshBtn, loadBtn);
         body.append(flowsRow);
 
-        // --- add steps + count ---
+        // --- add steps + count. New steps land at the insertion point (the ⤵ caret on a row —
+        // click one to insert after that row; no caret = append at the end). The point follows
+        // whatever was just added, like a text cursor.
         const topRow = el('div', 'display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;');
         const capBtn = el('button', BTN, 'Capture');
         capBtn.addEventListener('click', () => this._capture());
         const delayBtn = el('button', BTN, '+ delay');
-        delayBtn.addEventListener('click', () => { this.store.addDelay(1); this._status.textContent = 'added 1 s delay'; });
+        delayBtn.addEventListener('click', () => {
+            this._afterAdd(this.store.addDelay(1, this._insertIndex()));
+            this._status.textContent = 'added 1 s delay';
+        });
         const payBtn = el('button', BTN, '+ payload');
-        payBtn.addEventListener('click', () => { this.store.addPayload(0, [0, 0, 0]); this._status.textContent = 'added payload step'; });
+        payBtn.addEventListener('click', () => {
+            this._afterAdd(this.store.addPayload(0, [0, 0, 0], this._insertIndex()));
+            this._status.textContent = 'added payload step';
+        });
         const outBtn = el('button', BTN, '+ output');
         outBtn.title = 'Set a digital output at this point (native RobFlow setOutput node) — e.g. fire the gripper valve';
         outBtn.addEventListener('click', () => {
             // default to the gripper's resolved output, so "+ output" fires the valve as-is
             const gripName = window._robcoEndEffector?.gripOutputName?.();
             const ref = window._robcoMaterialManager?.resolveOutputRef?.(gripName);
-            this.store.addOutput(ref?.bank ?? 0, ref?.io ?? 0, true);
+            this._afterAdd(this.store.addOutput(ref?.bank ?? 0, ref?.io ?? 0, true, 0, this._insertIndex()));
             this._status.textContent = 'added output step';
         });
         topRow.append(capBtn, delayBtn, payBtn, outBtn);
@@ -175,7 +189,12 @@ export class WaypointsPanel {
 
         const clearRow = el('div', 'display:flex;gap:6px;margin-top:6px;');
         const clearBtn = el('button', BTN, 'Clear all');
-        clearBtn.addEventListener('click', () => { this.store.clear(); this._currentFlowUuid = null; this._loadedName = null; });
+        clearBtn.addEventListener('click', () => {
+            this.store.clear();
+            this._currentFlowUuid = null;
+            this._loadedName = null;
+            this._insertAfterId = null;
+        });
         clearRow.append(clearBtn);
         body.append(clearRow);
 
@@ -236,13 +255,114 @@ export class WaypointsPanel {
         if (this._connectHint) this._connectHint.textContent = has ? '' : 'connect a session to load / push';
     }
 
+    // --- insertion point -------------------------------------------------
+    /** List index new steps go to — right after the caret row; null appends at the end. */
+    _insertIndex() {
+        if (!this._insertAfterId) return null;
+        const i = this.store.items.findIndex((w) => w.id === this._insertAfterId);
+        return i < 0 ? null : i + 1;
+    }
+
+    /** Advance the insertion point past the step that was just added (text-cursor behavior). */
+    _afterAdd(it) {
+        if (this._insertAfterId && it) {
+            this._insertAfterId = it.id;
+            this._renderList(); // the caret moved — the store's own re-render already happened
+        }
+        return it;
+    }
+
+    // --- gizmo editing of a waypoint pose --------------------------------
+    _ensureWpGizmo() {
+        if (this._tc) return this._tc;
+        const sm = this.app.sceneManager;
+        const tc = new TcpGizmo({
+            camera: sm.camera,
+            domElement: sm.renderer.domElement,
+            orbit: sm.controls, // the gizmo disables orbit itself while hovering/dragging
+            redraw: () => sm.redraw?.(),
+        });
+        // the marker is the gizmo's target, so it moves live; the arm follows it via IK
+        tc.addEventListener('change', () => { this._wpFollow(); sm.redraw?.(); });
+        tc.addEventListener('dragging-changed', (e) => { if (!e.value) this._commitWpPose(); });
+        sm.scene.add(tc);
+        this._tc = tc;
+        return tc;
+    }
+
+    /** Toggle gizmo editing of a move's marker: drag it to reposition/reorient the waypoint.
+     *  The virtual arm drives to the waypoint on start and FOLLOWS the marker while dragging
+     *  (IK preview); the live WS mirror is paused so incoming angles don't snap it back. */
+    _editWaypoint(it) {
+        if (this._wpEditId === it.id) { this._stopWpEdit(); return; }
+        if (!it._marker || !it.worldPose) { this._status.textContent = `${it.name}: no marker to edit`; return; }
+        activateManipulator('waypoint-gizmo'); // turn off teach/setup gizmo + FK drag
+        if (!this.store.isVisible()) this.store.setVisible(true); // can't drag an invisible marker
+        const tc = this._ensureWpGizmo();
+        tc.attach(it._marker);
+        tc.setEnabled(true);
+        this._wpEditId = it.id;
+        this.store.select(it.id);
+        if (this._wpPrevTeach == null) this._wpPrevTeach = !!this.app._teachActive;
+        this.app._teachActive = true; // pause the live mirror — the arm previews this waypoint
+        this._wpSeed = (it.joints || []).slice(); // IK seed, carried drag-to-drag for continuity
+        const res = this.teach?.goToBaseMatrix(this.store.baseMatrix(it), it.joints);
+        if (res?.converged) this._wpSeed = res.q.map((r) => (r * 180) / Math.PI);
+        this._status.textContent = `editing ${it.name} — drag the gizmo, click ✥ again to finish`;
+        this._renderList();
+        this.app.sceneManager?.redraw?.();
+    }
+
+    /** While dragging: solve IK for the marker's current pose and pose the arm on it. An
+     *  unreachable spot leaves the arm at the last reachable pose (the commit marks it red). */
+    _wpFollow() {
+        const it = this.store.byId(this._wpEditId);
+        if (!it?._marker || !this.teach) return;
+        const m = new THREE.Matrix4().compose(it._marker.position, it._marker.quaternion, new THREE.Vector3(1, 1, 1));
+        const res = this.teach.goToBaseMatrix(this.base.worldToBase(m), this._wpSeed?.length ? this._wpSeed : it.joints);
+        if (res.converged) this._wpSeed = res.q.map((r) => (r * 180) / Math.PI);
+    }
+
+    /** Drag ended: persist the marker pose as the waypoint's world pose. A joint-mode step gets a
+     *  fresh IK solve (its captured joints are stale now); the exact captured cartesian is dropped
+     *  for the same reason. */
+    _commitWpPose() {
+        const it = this.store.byId(this._wpEditId);
+        if (!it?._marker) return;
+        const m = new THREE.Matrix4().compose(it._marker.position, it._marker.quaternion, new THREE.Vector3(1, 1, 1));
+        const patch = { worldMatrix: m, robflowPose: null };
+        if (this.teach) {
+            // seed with the followed configuration — the arm is already posed on the marker
+            const s = this.teach.solveBaseMatrix(this.base.worldToBase(m), this._wpSeed?.length ? this._wpSeed : it.joints);
+            if (s?.converged) patch.joints = s.deg.map((d) => Math.round(d * 1000) / 1000);
+        }
+        this.store.update(it.id, patch);
+        this.store.refreshReachability(this.teach);
+    }
+
+    _stopWpEdit() {
+        if (!this._wpEditId && !this._tc) return;
+        if (this._tc) this._tc.setEnabled(false);
+        if (this._wpEditId) {
+            this._wpEditId = null;
+            this._wpSeed = null;
+            // resume the live mirror (the next streamed frame re-poses the arm on the real robot)
+            if (this._wpPrevTeach != null) {
+                this.app._teachActive = this._wpPrevTeach;
+                this._wpPrevTeach = null;
+            }
+            deactivateManipulator('waypoint-gizmo');
+            this._renderList();
+        }
+    }
+
     // --- capture / load ------------------------------------------------
     _capture() {
         if (!this.teach) { this._status.textContent = 'teach pendant not ready'; return; }
         const baseM = this.teach.tcpBaseMatrix();
         const worldM = this.base.baseToWorld(baseM);
         const robflowPose = (!this.app._teachActive && this.app._robcoLatestPose) ? this.app._robcoLatestPose : null;
-        const it = this.store.add(worldM, this.teach.currentAnglesDeg(), null, robflowPose);
+        const it = this._afterAdd(this.store.add(worldM, this.teach.currentAnglesDeg(), null, robflowPose, this._insertIndex()));
         this._status.textContent = `captured ${it.name}${robflowPose ? ' (exact cartesian)' : ''}`;
     }
 
@@ -273,6 +393,7 @@ export class WaypointsPanel {
             const flow = await this.client.getExportableFlow(uuid);
             const { steps, name, skipped } = parseFlow(flow);
             const specs = steps.map((s) => this._toSpec(s)).filter(Boolean);
+            this._insertAfterId = null; // fresh sequence — the old caret row is gone
             this.store.loadSteps(specs);
             this.store.refreshReachability(this.teach);
             this._currentFlowUuid = uuid;
@@ -302,6 +423,8 @@ export class WaypointsPanel {
     // --- list ----------------------------------------------------------
     _renderList() {
         if (!this._list) return;
+        // The gizmo-edited step was removed (delete / clear / flow load) — its marker is gone.
+        if (this._wpEditId && !this.store.byId(this._wpEditId)) this._stopWpEdit();
         // Preserve an in-progress edit across the full rebuild (base moves / reachability refresh
         // re-render the whole list; without this the field you're typing in loses focus).
         const active = document.activeElement;
@@ -325,12 +448,28 @@ export class WaypointsPanel {
             const handle = el('span', 'cursor:grab;opacity:.45;flex:0 0 auto;', '⠿');
             row.append(handle);
 
+            // Insertion caret: new steps (Capture / +delay / +payload / +output) land after this
+            // row. Click to set, click again to go back to appending at the end.
+            const here = it.id === this._insertAfterId;
+            const caret = el('span', 'cursor:pointer;flex:0 0 auto;font-size:11px;padding:0 2px;border-radius:4px;' +
+                (here ? 'color:#2f81f7;background:rgba(47,129,247,0.22);' : 'opacity:.35;'), '⤵');
+            caret.title = here
+                ? 'new steps are inserted here — click to append at the end again'
+                : 'insert new steps after this row';
+            caret.draggable = false;
+            caret.addEventListener('click', () => {
+                this._insertAfterId = here ? null : it.id;
+                this._renderList();
+            });
+            row.append(caret);
+
             if (it.kind === 'delay') this._delayRow(row, it);
             else if (it.kind === 'payload') this._payloadRow(row, it);
             else if (it.kind === 'output') this._outputRow(row, it);
             else this._moveRow(row, it);
 
             this._list.append(row);
+            if (here) this._list.append(el('div', 'height:2px;background:#2f81f7;border-radius:1px;margin:0 2px 1px 20px;'));
         });
         if (items.length === 0) this._list.append(el('div', 'opacity:.6;font-size:11px;', 'empty — Capture, +delay/+payload/+output, or Load a flow'));
 
@@ -367,11 +506,17 @@ export class WaypointsPanel {
         alt.title = 'find alternate joint configurations for this TCP';
         alt.draggable = false;
         alt.addEventListener('click', () => this._showAlternates(it));
+        const editing = it.id === this._wpEditId;
+        const giz = el('button', BTN + 'padding:3px 6px;flex:0 0 auto;'
+            + (editing ? 'background:rgba(47,129,247,0.35);border-color:#2f81f7;' : ''), '✥');
+        giz.title = editing ? 'finish editing this waypoint' : 'move this waypoint with a gizmo in the 3D view';
+        giz.draggable = false;
+        giz.addEventListener('click', () => this._editWaypoint(it));
         const go = el('button', BTN + 'padding:3px 6px;flex:0 0 auto;', 'Go');
         go.draggable = false;
         go.addEventListener('click', () => this._goTo(it));
         const del = this._delBtn(it.id);
-        row.append(dot, name, modeBtn, vel, acc, blend, alt, go, del);
+        row.append(dot, name, modeBtn, vel, acc, blend, alt, giz, go, del);
     }
 
     _delayRow(row, it) {

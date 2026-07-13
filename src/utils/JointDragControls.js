@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { MathUtils } from './MathUtils.js';
-import { setRayFromCamera } from './pickRay.js';
+import { setRayFromCamera } from '../robco/pickRay.js';
 
 /**
  * Universal joint drag control system
@@ -436,7 +436,7 @@ export class PointerJointDragControls extends JointDragControls {
         this._mouseDown = e => {
             if (e.button !== 0) return;
             updateMouse(e);
-            setRayFromCamera(raycaster, mouse, this.camera);
+            setRayFromCamera(raycaster, mouse, this.camera); // ortho-safe (faked projection)
 
             // Only grab if actually clicking on the model
             // Check if ray intersects with the model before disabling camera controls

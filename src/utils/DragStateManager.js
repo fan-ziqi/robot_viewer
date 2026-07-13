@@ -3,7 +3,7 @@
  * Used to apply forces when dragging objects during physics simulation
  */
 import * as THREE from 'three';
-import { setRayFromCamera } from './pickRay.js';
+import { setRayFromCamera } from '../robco/pickRay.js';
 
 export class DragStateManager {
     constructor(scene, renderer, camera, container, controls) {

@@ -53,9 +53,9 @@ export class WaypointStore {
         baseFrame.attach(this.group);
     }
 
-    // --- add steps -----------------------------------------------------
+    // --- add steps (index null = append; else insert at that list position) ---
     /** Capture a move from a world-frame TCP matrix + joint snapshot (defaults: joint, vel/acc max). */
-    add(worldMatrix, jointsDeg, name, robflowPose = null) {
+    add(worldMatrix, jointsDeg, name, robflowPose = null, index = null) {
         const it = this._newMove({
             name: name || `P${this._moveCount() + 1}`,
             mode: 'joint',
@@ -65,7 +65,7 @@ export class WaypointStore {
                 ? { position: robflowPose.position.slice(), orientation: (robflowPose.orientation || []).slice() }
                 : null,
         });
-        this.items.push(it);
+        this._insert(it, index);
         this._commit();
         return it;
     }

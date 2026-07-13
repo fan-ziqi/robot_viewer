@@ -18,10 +18,11 @@
  * tool, connecting flange and tool visually.
  *
  * Only the ATTACHED tool's mass + CoM feed the dynamics as the 'gripper' payload source, and its
- * tip can act as TCP (editable flange->tip offset routed into the TeachPendant). The `output`
- * field names the ONE digital output that closes the gripper for MTBH gripping ("1/0" = bank/io,
- * see MaterialManager). `attachPoint()` = attached tool's mount, else the changer, else the bare
- * flange — whatever gripped material should rigidly follow.
+ * tip can act as TCP (editable flange->tip offset routed into the TeachPendant). The output
+ * bank/io fields address the ONE digital output that closes the gripper for MTBH gripping
+ * (waypoint-style; a live indicator shows the IO's current state, see MaterialManager).
+ * `attachPoint()` = attached tool's mount, else the changer, else the bare flange — whatever
+ * gripped material should rigidly follow.
  */
 import * as THREE from 'three';
 import { parseOutputRef } from './mtbhEntry.js';
@@ -138,22 +139,55 @@ export class EndEffector {
         return this.attached?.mount || this.changer?.mount || this._flange();
     }
 
-    /** The ONE output that closes this gripper — MaterialManager grips the closest MTBH
-     *  element while it is ON. All parts share it; there are no per-part outputs. */
-    gripOutputName() { return this.gripOutput || 'Gripper'; }
+    /** The ONE output that closes this gripper, as a literal "bank/io" reference —
+     *  MaterialManager grips the closest MTBH element while it is ON. All parts share it;
+     *  there are no per-part outputs. */
+    gripOutputName() { return `${this.gripBank}/${this.gripIo}`; }
 
-    /** Hint under the output field: where the name resolves to, or how to make it resolve. */
-    _outHintText(name) {
-        const mm = window._robcoMaterialManager;
-        const ref = mm?.resolveOutputRef ? mm.resolveOutputRef(name) : parseOutputRef(name);
-        return ref
-            ? `live: robot output bank ${ref.bank}, io ${ref.io} — ON grips, OFF releases`
-            : `type a session output name (e.g. Gripper) or bank/io (e.g. 1/0) — or log "output:${name}=1|0" in the flow`;
+    /** The gripper's output address (bank + io within the bank). */
+    gripOutputRef() { return { bank: this.gripBank, io: this.gripIo }; }
+
+    /** Session output names arrived (MaterialManager.setIOConfigs): resolve a legacy free-name
+     *  config (e.g. "Gripper") to its bank/io once, and refresh the resolved-name label. */
+    refreshOutputHint() {
+        if (this._pendingOutName) {
+            const ref = window._robcoMaterialManager?.resolveOutputRef?.(this._pendingOutName);
+            if (ref) {
+                console.log(`[RobCo] gripper output "${this._pendingOutName}" resolved to bank ${ref.bank}, io ${ref.io}`);
+                this.gripBank = ref.bank;
+                this.gripIo = ref.io;
+                this._pendingOutName = null;
+                this._persist();
+            }
+        }
+        this._syncOutUI();
     }
 
-    /** Named outputs arrived (MaterialManager.setIOConfigs) — the hint may resolve now. */
-    refreshOutputHint() {
-        if (this._outHint) this._outHint.textContent = this._outHintText(this.gripOutput);
+    /** Refresh the live ON/OFF indicator of the gripper's IO (streamed state, or the sim toggle). */
+    refreshOutputState() {
+        if (!this._outDot) return;
+        const st = window._robcoMaterialManager?.getOutputState?.(this.gripBank, this.gripIo);
+        const known = st === true || st === false;
+        this._outDot.textContent = known ? (st ? 'ON' : 'OFF') : '—';
+        this._outDot.style.color = st === true ? '#3fb950' : 'rgba(230,237,243,0.55)';
+        this._outDot.style.borderColor = st === true ? '#3fb950' : 'rgba(255,255,255,0.15)';
+        this._outDot.style.background = st === true ? 'rgba(63,185,80,0.2)' : 'transparent';
+        this._outDot.title = known
+            ? `current state of output ${this.gripBank}/${this.gripIo}`
+            : 'no state yet — connect a session or use the simulated toggle in the Material section';
+    }
+
+    /** Load the bank/io inputs + resolved-name label from the config. */
+    _syncOutUI() {
+        if (this._outBank) this._outBank.value = String(this.gripBank);
+        if (this._outIo) this._outIo.value = String(this.gripIo);
+        if (this._outName) {
+            const cfgs = window._robcoMaterialManager?.ioConfigs || [];
+            const named = cfgs.find((c) => c?.bankId === this.gripBank && c?.ioId === this.gripIo);
+            // Resolved session name confirms the address; a pending legacy name shows until it resolves.
+            this._outName.textContent = named?.name || (this._pendingOutName ? `${this._pendingOutName}?` : '');
+        }
+        this.refreshOutputState();
     }
 
     /** Grip point of the CURRENT gripper (mm, relative to attachPoint) — per tool, so every
@@ -487,13 +521,32 @@ export class EndEffector {
 
     // --- persistence ---------------------------------------------------
     _loadPersisted() {
-        this.gripOutput = 'Gripper';
+        this.gripBank = 0;
+        this.gripIo = 0;
+        // Free output NAME still to be resolved to bank/io via the session's named outputs
+        // (refreshOutputHint). Default "Gripper" keeps the out-of-the-box magic: the moment a
+        // session lists an output of that name, the address locks onto it.
+        this._pendingOutName = 'Gripper';
         try {
             const s = JSON.parse(localStorage.getItem(KEY));
             this._persistedCfgs = (s && Array.isArray(s.tools)) ? s.tools : [];
             this._persistedAttachedId = s?.attachedId ?? s?.activeId ?? null; // activeId: pre-docking saves
             this.homeId = s?.homeId ?? this._persistedAttachedId ?? null;
-            if (typeof s?.gripOutput === 'string' && s.gripOutput) this.gripOutput = s.gripOutput;
+            if (Number.isFinite(+s?.gripBank) && Number.isFinite(+s?.gripIo)) {
+                this.gripBank = Math.max(0, Math.round(+s.gripBank));
+                this.gripIo = Math.max(0, Math.round(+s.gripIo));
+                this._pendingOutName = null;
+            } else if (typeof s?.gripOutput === 'string' && s.gripOutput) {
+                // migrate a pre-bank/io save: literal "1/0" parses now, a free name resolves later
+                const ref = parseOutputRef(s.gripOutput);
+                if (ref) {
+                    this.gripBank = ref.bank;
+                    this.gripIo = ref.io;
+                    this._pendingOutName = null;
+                } else {
+                    this._pendingOutName = s.gripOutput;
+                }
+            }
         } catch { this._persistedCfgs = []; this._persistedAttachedId = null; }
     }
 
@@ -502,7 +555,8 @@ export class EndEffector {
             localStorage.setItem(KEY, JSON.stringify({
                 attachedId: this.attachedId,
                 homeId: this.homeId,
-                gripOutput: this.gripOutput,
+                gripBank: this.gripBank,
+                gripIo: this.gripIo,
                 tools: this.tools.map((t) => t.cfg),
             }));
         } catch { /* ignore */ }
@@ -536,27 +590,35 @@ export class EndEffector {
         this._status = el('div', 'font-size:11px;color:#9da7b3;margin-bottom:4px;', 'no tools imported');
         wrap.append(this._status);
 
-        // the gripper's output — shared by every MTBH part; the closest one grips while it's ON
+        // the gripper's output as bank/io (waypoint-style) — shared by every MTBH part; the
+        // closest one grips while it's ON. Indicator shows the IO's current (live/sim) state.
         const outRow = el('div', 'display:flex;align-items:center;gap:6px;margin:4px 0 0;');
-        outRow.title = 'The robot output that closes this gripper — a session output name (e.g. "Gripper") ' +
-            'or bank/io (e.g. "1/0" = bank 1, output 0). ' +
+        outRow.title = 'The robot output that closes this gripper — bank + io, as in the Waypoints section. ' +
             'Toggle the gripper in RobCo Studio and check the console to find yours. ' +
             'For testing without a robot, use the simulated toggle in the Material section.';
         outRow.append(el('span', 'width:46px;opacity:.8;', 'output'));
-        this._outIn = el('input', TEXT);
-        this._outIn.type = 'text';
-        this._outIn.value = this.gripOutput;
-        this._outIn.setAttribute('list', 'robco-output-names'); // session output names (MaterialManager)
-        this._outIn.addEventListener('change', () => {
-            this.gripOutput = this._outIn.value.trim() || 'Gripper';
-            this._outIn.value = this.gripOutput;
-            this._outHint.textContent = this._outHintText(this.gripOutput);
-            this._persist();
+        const outNum = (val, title, onChange) => {
+            const inp = el('input', NUM.replace('width:46px', 'width:34px'));
+            inp.type = 'number'; inp.min = '0'; inp.step = '1'; inp.value = String(val); inp.title = title;
+            inp.addEventListener('change', () => onChange(Math.max(0, Math.round(+inp.value || 0))));
+            return inp;
+        };
+        this._outBank = outNum(this.gripBank, 'output bank id', (v) => {
+            this.gripBank = v; this._pendingOutName = null; this._persist(); this._syncOutUI();
         });
-        outRow.append(this._outIn);
+        this._outIo = outNum(this.gripIo, 'output id within the bank', (v) => {
+            this.gripIo = v; this._pendingOutName = null; this._persist(); this._syncOutUI();
+        });
+        this._outDot = el('span', 'font:600 10px ui-monospace,monospace;border:1px solid rgba(255,255,255,0.15);' +
+            'border-radius:5px;padding:2px 7px;min-width:20px;text-align:center;', '—');
+        // Resolved name from the live robot config (e.g. "Gripper") — confirms the address is right.
+        this._outName = el('span', 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
+            'opacity:.6;font-size:10px;', '');
+        outRow.append(el('span', 'opacity:.6;', 'bank'), this._outBank, el('span', 'opacity:.6;', 'io'), this._outIo,
+            this._outDot, this._outName);
         wrap.append(outRow);
-        this._outHint = el('div', HINT, this._outHintText(this.gripOutput));
-        wrap.append(this._outHint);
+        wrap.append(el('div', HINT, 'ON grips the closest MTBH element, OFF releases it'));
+        this._syncOutUI();
 
         // "no tool" slot: a model that is ALWAYS on the flange (e.g. the tool-changer master)
         const chgRow = el('div', 'display:flex;align-items:center;gap:6px;margin:4px 0;');

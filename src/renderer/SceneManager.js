@@ -31,6 +31,14 @@ export class SceneManager {
         this._lastInputAt = 0;
         this._INPUT_SETTLE_MS = 500;
 
+        // Background rendering: when on, keep rendering every frame even while the robot-viewer
+        // window is inactive/unfocused (the on-demand loop would otherwise idle), and keep a timer
+        // ticking while the tab is fully hidden (requestAnimationFrame is paused then). Useful for
+        // a popped-out camera view on a second monitor. Opt-in and persisted.
+        this._renderInBackground = false;
+        this._bgTimer = null;
+        try { this._renderInBackground = localStorage.getItem('robco-render-bg') === 'true'; } catch { /* ignore */ }
+
         // Event system
         this._eventListeners = {};
         // Per-frame hooks, invoked after each rendered frame (e.g. a secondary camera viewport).
@@ -100,6 +108,10 @@ export class SceneManager {
         window.addEventListener('input', this._markInput, true);
         window.addEventListener('change', this._markInput, true);
 
+        // Start/stop the background-render timer as the tab is hidden/shown.
+        this._onVisibilityChange = () => this._updateBgTimer();
+        document.addEventListener('visibilitychange', this._onVisibilityChange);
+
         // Set mouse buttons
         if (this.controls.mouseButtons) {
             this.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
@@ -168,7 +180,8 @@ export class SceneManager {
             // On-demand: render only when the scene is dirty, the pointer is dragging, or
             // we're inside the post-input settle window. Idle (static view, no input,
             // no stream/sim) draws nothing.
-            const active = this._dirty
+            const active = this._renderInBackground
+                || this._dirty
                 || this._pointerActive
                 || (performance.now() - this._lastInputAt) < this._INPUT_SETTLE_MS;
             if (active) {
@@ -203,6 +216,10 @@ export class SceneManager {
             window.removeEventListener('input', this._markInput, true);
             window.removeEventListener('change', this._markInput, true);
         }
+
+        // Background-render timer + visibility listener
+        if (this._bgTimer) { clearInterval(this._bgTimer); this._bgTimer = null; }
+        if (this._onVisibilityChange) document.removeEventListener('visibilitychange', this._onVisibilityChange);
     }
 
     /**
@@ -247,6 +264,33 @@ export class SceneManager {
         // the TCP-camera viewport render + its frustum-helper refresh.
         for (const fn of this._frameHooks) {
             try { fn(); } catch (e) { console.warn('[RobCo] frame hook:', e); }
+        }
+    }
+
+    /** Whether the scene keeps rendering while the window is inactive / in the background. */
+    getRenderInBackground() { return this._renderInBackground; }
+
+    /**
+     * Toggle background rendering. When on, the render loop runs every frame (instead of on-demand)
+     * so the main view — and any secondary camera viewport / pop-out window — keeps updating while
+     * the robot-viewer window is unfocused, and a timer keeps it ticking while the tab is fully
+     * hidden (requestAnimationFrame is paused then). Persisted across reloads.
+     */
+    setRenderInBackground(on) {
+        this._renderInBackground = !!on;
+        try { localStorage.setItem('robco-render-bg', String(this._renderInBackground)); } catch { /* ignore */ }
+        this._updateBgTimer();
+        this.redraw();
+    }
+
+    /** Run the fallback timer only while it's needed: background rendering on AND the tab hidden. */
+    _updateBgTimer() {
+        const need = this._renderInBackground && typeof document !== 'undefined' && document.hidden;
+        if (need && !this._bgTimer) {
+            this._bgTimer = setInterval(() => { if (!this._renderingPaused) this._renderFrame(); }, 100);
+        } else if (!need && this._bgTimer) {
+            clearInterval(this._bgTimer);
+            this._bgTimer = null;
         }
     }
 
@@ -584,10 +628,6 @@ export class SceneManager {
         const next = mode === 'orthographic' ? 'orthographic' : 'perspective';
         if (next === this.projectionMode) return;
         this.projectionMode = next;
-        // Consumers that must know the REAL projection despite the perspective camera object
-        // (pick rays via utils/pickRay.js, GTAO depth reconstruction) branch on this stamp —
-        // camera.isPerspectiveCamera stays true by design.
-        this.camera.userData.projectionMode = next;
         // Leaving ortho: restore the genuine perspective projection matrix immediately.
         if (next === 'perspective') this.camera.updateProjectionMatrix();
         this.postFX?.syncProjection?.(next);

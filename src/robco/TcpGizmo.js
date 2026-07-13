@@ -20,7 +20,7 @@
  */
 import * as THREE from 'three';
 import { registerGizmo, unregisterGizmo } from './gizmoSettings.js';
-import { setRayFromCamera } from '../utils/pickRay.js';
+import { setRayFromCamera, isOrthoProjection } from './pickRay.js';
 
 const COLORS = { X: 0xff3653, Y: 0x8adb00, Z: 0x2c8fff, hover: 0xffd24a, screen: 0xcfd8e3 };
 const AXIS = {
@@ -365,7 +365,7 @@ export class TcpGizmo extends THREE.Object3D {
     _pick() {
         const active = this._pickers.filter((p) => this._partShown(p.userData.record));
         if (!active.length) return null;
-        setRayFromCamera(this._raycaster, this._ptr, this.camera);
+        setRayFromCamera(this._raycaster, this._ptr, this.camera); // ortho-safe (faked projection)
         let hits = this._raycaster.intersectObjects(active, false);
         if (!hits.length) return null;
         // Drop plane handles seen too edge-on — they're near-invisible slivers there and dragging in
@@ -469,6 +469,14 @@ export class TcpGizmo extends THREE.Object3D {
         return rec.axis.clone();
     }
 
+    /** Direction from `origin` toward the eye, written into `out`. Perspective: camera position −
+     *  origin. Ortho (real or faked — parallel view rays): the camera's world +Z axis, the same
+     *  for every origin. */
+    _eyeDir(origin, out) {
+        if (isOrthoProjection(this.camera)) return out.setFromMatrixColumn(this.camera.matrixWorld, 2);
+        return out.copy(this._camPos).sub(origin);
+    }
+
     _setupPlane(rec) {
         this.camera.getWorldPosition(this._camPos); // ensure the camera position is current for the plane
         const axis = this._dragAxis;
@@ -477,7 +485,7 @@ export class TcpGizmo extends THREE.Object3D {
             // Camera-facing plane (normal = toward the camera). For 'rotate' this keeps the
             // ray∩plane well-conditioned at every angle (no edge-on blow-up); for the 'screen'
             // handle it IS the drag plane (translate parallel to the view).
-            const n = this._tmp.copy(this._camPos).sub(origin);
+            const n = this._eyeDir(origin, this._tmp);
             this._plane.setFromNormalAndCoplanarPoint(n.lengthSq() < 1e-9 ? UNIT_Z : n.normalize(), origin);
             return;
         }
@@ -488,7 +496,7 @@ export class TcpGizmo extends THREE.Object3D {
         }
         // Translate-axis: the drag plane contains the axis and faces the camera as much as possible
         // (normal = the view direction with its along-axis component removed).
-        const eye = this._tmp.copy(this._camPos).sub(origin).normalize();
+        const eye = this._eyeDir(origin, this._tmp).normalize();
         let n = eye.clone().addScaledVector(axis, -eye.dot(axis));
         if (n.lengthSq() < 1e-6) n = eye.clone(); // axis ≈ view ray → fall back
         this._plane.setFromNormalAndCoplanarPoint(n.normalize(), origin);
@@ -524,7 +532,7 @@ export class TcpGizmo extends THREE.Object3D {
         } else {
             // Rotation on the camera-facing plane (see _setupPlane): project the drag onto the ring's
             // screen tangent (axis × eye) — well-conditioned at every camera angle, no edge-on blow-up.
-            const eye = this._camPos.clone().sub(this._startWorldPos).normalize();
+            const eye = this._eyeDir(this._startWorldPos, new THREE.Vector3()).normalize();
             const tangent = axis.clone().cross(eye);
             let rotAxis = axis;
             let angle;

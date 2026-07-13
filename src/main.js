@@ -16,7 +16,7 @@ import { MeasurementController } from './controllers/MeasurementController.js';
 import { USDViewerManager } from './renderer/USDViewerManager.js';
 import { MujocoSimulationManager } from './renderer/MujocoSimulationManager.js';
 import { i18n } from './utils/i18n.js';
-import { setRayFromCamera } from './utils/pickRay.js';
+import { setRayFromCamera } from './robco/pickRay.js';
 
 // Expose d3 globally for PanelManager
 window.d3 = d3;

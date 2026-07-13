@@ -10,10 +10,10 @@
  *   Screenshot  : save the canvas as a PNG
  */
 import * as THREE from 'three';
-import { setRayFromCamera } from '../utils/pickRay.js';
 import { ModelLoaderFactory } from '../loaders/ModelLoaderFactory.js';
 import { makeDraggable, makeCollapsible } from './draggable.js';
 import { registerManipulator, activateManipulator, deactivateManipulator } from './manipulators.js';
+import { setRayFromCamera } from './pickRay.js';
 
 const PANEL_CSS =
     'position:fixed;left:16px;top:64px;z-index:3000;width:250px;font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;' +
@@ -132,6 +132,12 @@ export class ViewPanel {
         const grid = this.sm.referenceGrid || this.sm.environmentManager?.referenceGrid;
         body.append(this._check('Reference grid', (on) => this._setGridVisible(on), grid ? grid.visible !== false : true, 'grid'));
 
+        // Rendering — keep drawing while the window is inactive/backgrounded (e.g. for a
+        // popped-out camera view on another monitor). Persisted in SceneManager.
+        body.append(title('Rendering'));
+        body.append(this._check('Render in background', (on) => this.sm.setRenderInBackground?.(on),
+            this.sm.getRenderInBackground?.() ?? false, 'renderBg'));
+
         // Trace — draw the path the TCP sweeps (any motion source). Engine lives on the global,
         // created with the teach pendant (same lazy pattern as the Waypoints toggle above).
         body.append(title('Trace'));
@@ -235,7 +241,7 @@ export class ViewPanel {
                 const r = dom.getBoundingClientRect();
                 mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
                 mouse.y = -((e.clientY - r.top) / r.height) * 2 + 1;
-                setRayFromCamera(raycaster, mouse, this.sm.camera);
+                setRayFromCamera(raycaster, mouse, this.sm.camera); // ortho-safe (faked projection)
                 const model = this._model();
                 if (!model?.threeObject) return;
                 const hits = raycaster.intersectObject(model.threeObject, true);
