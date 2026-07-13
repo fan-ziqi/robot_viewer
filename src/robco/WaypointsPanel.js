@@ -40,6 +40,8 @@ const SELECT = 'flex:1;min-width:0;background:rgba(255,255,255,0.08);border:1px 
     'border-radius:4px;color:#e6edf3;padding:2px 4px;font:inherit;color-scheme:dark;';
 const OPT = 'background:#0d1117;color:#e6edf3;';
 const D2R = Math.PI / 180;
+// Insertion-caret sentinel: new steps go to the very top of the list (before the first row).
+const INSERT_TOP = '__insert-top__';
 
 function numInput(value, { w = 44, step = 1, min = 0, max = null, field = null, onChange }) {
     const i = el('input', NUM + `width:${w}px;`);
@@ -211,8 +213,9 @@ export class WaypointsPanel {
         visRow.append(vis, el('span', 'opacity:.9;', 'Show waypoints'));
         body.append(visRow);
 
-        // list
-        this._list = el('div', 'border-top:1px solid rgba(255,255,255,0.1);padding-top:4px;');
+        // list (position:relative anchors the drag drop-indicator line)
+        this._list = el('div', 'position:relative;border-top:1px solid rgba(255,255,255,0.1);padding-top:4px;');
+        this._wireListDrag(this._list);
         body.append(this._list);
 
         const clearRow = el('div', 'display:flex;gap:6px;margin-top:6px;');
@@ -301,9 +304,10 @@ export class WaypointsPanel {
     }
 
     // --- insertion point -------------------------------------------------
-    /** List index new steps go to — right after the caret row; null appends at the end. */
+    /** List index new steps go to — top of the list, right after the caret row, or append (null). */
     _insertIndex() {
         if (!this._insertAfterId) return null;
+        if (this._insertAfterId === INSERT_TOP) return 0;
         const i = this.store.items.findIndex((w) => w.id === this._insertAfterId);
         return i < 0 ? null : i + 1;
     }
@@ -494,6 +498,25 @@ export class WaypointsPanel {
         this._count.textContent = `${items.length} steps · ${moves.length} moves · ${reach}/${moves.length} reachable`;
         if (this._visCb) this._visCb.checked = this.store.isVisible();
 
+        // Insert-at-top caret: like the per-row ⤵ but for position 0 (before the first row).
+        if (items.length) {
+            const isTop = this._insertAfterId === INSERT_TOP;
+            const topBar = el('div', 'display:flex;align-items:center;gap:5px;margin:0 0 1px;');
+            const caret = el('span', 'cursor:pointer;flex:0 0 auto;font-size:11px;padding:0 2px;margin-left:16px;border-radius:4px;' +
+                (isTop ? 'color:#2f81f7;background:rgba(47,129,247,0.22);' : 'opacity:.35;'), '⤵');
+            caret.title = isTop
+                ? 'new steps are inserted at the top — click to append at the end again'
+                : 'insert new steps at the top of the list (as the first element)';
+            caret.addEventListener('click', () => {
+                this._insertAfterId = isTop ? null : INSERT_TOP;
+                this._renderList();
+            });
+            topBar.append(caret);
+            if (isTop) topBar.append(el('span', 'font-size:10px;color:#6e7681;', 'inserting at top'));
+            this._list.append(topBar);
+            if (isTop) this._list.append(el('div', 'height:2px;background:#2f81f7;border-radius:1px;margin:0 2px 1px 20px;'));
+        }
+
         let lastFolder = null;
         items.forEach((it, idx) => {
             // Folder boundaries: a contiguous run of the same groupId renders one header above it.
@@ -616,10 +639,18 @@ export class WaypointsPanel {
             head.style.opacity = '0.4';
             try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', fid); } catch { /* ignore */ }
         });
-        head.addEventListener('dragend', () => { head.style.opacity = '1'; this._dragFolder = null; });
-        head.addEventListener('dragover', (e) => { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch { /* ignore */ } });
+        head.addEventListener('dragend', () => { head.style.opacity = '1'; this._dragFolder = null; this._hideDropLine(); });
+        head.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            try { e.dataTransfer.dropEffect = 'move'; } catch { /* ignore */ }
+            // dropping a step HERE joins the folder — preview via header highlight, not the line
+            this._hideDropLine();
+            if (this._dragFrom != null) head.style.outline = '1px solid #2f81f7';
+        });
+        head.addEventListener('dragleave', () => { head.style.outline = ''; });
         head.addEventListener('drop', (e) => {
             e.preventDefault();
+            head.style.outline = '';
             if (this._dragFrom != null) {
                 // a step dropped onto the folder header joins the folder (at its end)
                 const it = this.store.items[this._dragFrom];
@@ -805,15 +836,65 @@ export class WaypointsPanel {
             row.style.opacity = '0.4';
             try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(idx)); } catch { /* ignore */ }
         });
-        row.addEventListener('dragend', () => { row.style.opacity = '1'; this._dragFrom = null; });
-        row.addEventListener('dragover', (e) => { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch { /* ignore */ } });
+        row.addEventListener('dragend', () => { row.style.opacity = '1'; this._dragFrom = null; this._hideDropLine(); });
+        row.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            try { e.dataTransfer.dropEffect = 'move'; } catch { /* ignore */ }
+            // Preview: the drop lands at the nearer edge of the hovered row (top half = before it).
+            const r = row.getBoundingClientRect();
+            const before = (e.clientY - r.top) < r.height / 2;
+            this._dropAt = before ? idx : idx + 1;
+            this._showDropLine(row, before);
+        });
         row.addEventListener('drop', (e) => {
             e.preventDefault();
-            const to = Number(row.dataset.idx);
+            const to = this._dropAt ?? Number(row.dataset.idx);
+            this._hideDropLine();
             if (this._dragFolder) { this.store.moveFolder(this._dragFolder, to); return; } // whole-folder drop
             const from = this._dragFrom;
-            if (from != null && from !== to) this.store.moveStep(from, to);
+            if (from != null) this.store.moveStep(from, to);
         });
+    }
+
+    /** List-level drag plumbing: drop below the last row appends; leaving the list hides the line. */
+    _wireListDrag(list) {
+        list.addEventListener('dragover', (e) => {
+            if (e.target.closest('[data-idx]')) return; // rows / folder headers handle their own
+            if (this._dragFrom == null && !this._dragFolder) return;
+            e.preventDefault();
+            this._dropAt = this.store.items.length;
+            const rows = list.querySelectorAll('div[draggable="true"]');
+            const last = rows[rows.length - 1];
+            if (last) this._showDropLine(last, false);
+        });
+        list.addEventListener('drop', (e) => {
+            if (e.target.closest('[data-idx]')) return;
+            e.preventDefault();
+            const to = this._dropAt;
+            this._hideDropLine();
+            if (to == null) return;
+            if (this._dragFolder) { this.store.moveFolder(this._dragFolder, to); return; }
+            if (this._dragFrom != null) this.store.moveStep(this._dragFrom, to);
+        });
+        list.addEventListener('dragleave', (e) => {
+            if (!list.contains(e.relatedTarget)) this._hideDropLine();
+        });
+    }
+
+    /** Blue insertion line above/below a row — previews where the dragged step will land. */
+    _showDropLine(rowEl, before) {
+        if (!this._dropLine) {
+            this._dropLine = el('div', 'position:absolute;left:14px;right:2px;height:2px;background:#2f81f7;' +
+                'border-radius:1px;box-shadow:0 0 6px rgba(47,129,247,0.9);pointer-events:none;z-index:5;');
+        }
+        if (this._dropLine.parentElement !== this._list) this._list.append(this._dropLine);
+        this._dropLine.style.top = `${before ? rowEl.offsetTop - 1 : rowEl.offsetTop + rowEl.offsetHeight - 1}px`;
+        this._dropLine.style.display = 'block';
+    }
+
+    _hideDropLine() {
+        this._dropAt = null;
+        if (this._dropLine) this._dropLine.style.display = 'none';
     }
 
     _toggleMode(it) {
