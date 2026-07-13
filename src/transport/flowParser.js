@@ -151,8 +151,13 @@ function resolvePose(pose, varsByUuid) {
     return pose;
 }
 
-/** The Documentation Group whose rect contains the node's position (spatial membership). */
+/**
+ * The Documentation Group a node belongs to. An explicit parentNode link wins (the builder emits
+ * it; a linked node's position is RELATIVE to its parent, so a spatial check would misfire).
+ * Unlinked nodes fall back to spatial containment (editor-drawn groups).
+ */
 function docGroupOf(node, docGroups) {
+    if (node.parentNode) return docGroups.find((g) => g.id === node.parentNode) || null;
     const p = node.position || {};
     return docGroups.find((g) => {
         const gp = g.position || {};

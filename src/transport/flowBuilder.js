@@ -199,15 +199,18 @@ export function buildSequenceFlow(name, steps, opts = {}) {
     let idx = 0;
     const connect = (id) => { edges.push(edge(prev, id, prevHandle)); prev = id; prevHandle = 'out'; };
 
-    // Doc-folder column layout state + extents (group key -> {name, description, x, maxY}).
+    // Doc-folder column layout state + extents (group key -> {id, name, description, x, maxY}).
     const groupBounds = new Map();
     let curDoc = null; // exportDoc folder currently being laid out as a vertical column
     let colX = 0;
     let colY = 0;
 
-    /** Position for the next chain node. Members of an exportDoc folder stack BELOW each other in
-     *  one padded column (fully inside the future frame); everyone else advances the horizontal
-     *  chain, keeping GROUP_GAP clearance when stepping into or out of a frame. */
+    /** Layout slot for the next chain node. Members of an exportDoc folder stack BELOW each other
+     *  in one padded column and are LINKED to the Documentation Group (parentNode = group id,
+     *  position relative to the group frame — Vue Flow child semantics, so the editor moves them
+     *  with the group). Everyone else advances the horizontal chain, keeping GROUP_GAP clearance
+     *  when stepping into or out of a frame.
+     *  @returns {{pos:{x:number,y:number}, parentId:string|null}} */
     const place = (g) => {
         const dg = g?.exportDoc ? g.key : null;
         if (dg !== curDoc) {
@@ -220,19 +223,22 @@ export function buildSequenceFlow(name, steps, opts = {}) {
             curDoc = dg;
         }
         if (dg !== null) {
-            const pos = { x: colX, y: colY };
-            colY += GROUP_PITCH;
-            const b = groupBounds.get(dg) || { name: g.name, description: g.description, x: colX, maxY: 0 };
-            b.maxY = Math.max(b.maxY, pos.y);
+            const b = groupBounds.get(dg) || { id: uuid(), name: g.name, description: g.description, x: colX, maxY: 0 };
+            b.maxY = Math.max(b.maxY, colY);
             groupBounds.set(dg, b);
-            return pos;
+            // relative to the frame origin (frame = {x: colX-GROUP_PAD, y: -GROUP_TITLE})
+            const pos = { x: GROUP_PAD, y: colY + GROUP_TITLE };
+            colY += GROUP_PITCH;
+            return { pos, parentId: b.id };
         }
         const pos = { x, y: 0 };
         x += 380;
-        return pos;
+        return { pos, parentId: null };
     };
     const emit = (node, g) => {
-        node.position = place(g);
+        const slot = place(g);
+        node.position = slot.pos;
+        node.parentNode = slot.parentId;
         nodes.push(node);
         connect(node.id);
     };
@@ -288,7 +294,9 @@ export function buildSequenceFlow(name, steps, opts = {}) {
             // keeps everything after it present (if disconnected) instead of lost.
             if (s.raw) {
                 const raw = clone(s.raw);
-                raw.position = place(s.group);
+                const slot = place(s.group);
+                raw.position = slot.pos;
+                raw.parentNode = slot.parentId; // re-laid-out chain node — old parent no longer applies
                 nodes.push(raw);
                 edges.push(edge(prev, raw.id, prevHandle));
                 prev = raw.id;
@@ -305,7 +313,7 @@ export function buildSequenceFlow(name, steps, opts = {}) {
 
     if (useLoop) {
         const logNode = messageLogNode('cycle-log', 0);
-        logNode.position = place(null); // steps out of a trailing doc frame if one is open
+        logNode.position = place(null).pos; // steps out of a trailing doc frame if one is open
         nodes.push(logNode);
         edges.push(edge(prev, 'cycle-log', prevHandle));
     }
@@ -327,16 +335,23 @@ export function buildSequenceFlow(name, steps, opts = {}) {
     }
 
     // Checked folders → Documentation Groups (visual-only in RobFlow). The frame wraps its member
-    // column with padding, plus headroom above the first member so the title isn't hidden.
+    // column with padding, plus headroom above the first member so the title isn't hidden. Member
+    // nodes reference the group via parentNode (ids pre-generated in place()).
     const groups = [];
     for (const b of groupBounds.values()) {
         groups.push({
-            id: uuid(), type: 'documentation',
+            id: b.id, type: 'documentation',
             data: { name: b.name || 'Group', valid: true, canBeSaved: true, description: b.description || '', backgroundColor: 'robco-aquamarin' },
             position: { x: b.x - GROUP_PAD, y: -GROUP_TITLE },
             dimensions: { width: NODE_W + GROUP_PAD * 2, height: GROUP_TITLE + b.maxY + NODE_H + GROUP_PAD },
             parent: null,
         });
+    }
+    // A parentNode must reference something that exists in THIS flow (a group or another node) —
+    // e.g. a verbatim-kept node may point at a reference group we dropped. Null dangling links.
+    const groupIds = new Set(groups.map((g) => g.id));
+    for (const n of nodes) {
+        if (n.parentNode && !groupIds.has(n.parentNode) && !ids.has(n.parentNode)) n.parentNode = null;
     }
 
     const flow = {
