@@ -27,7 +27,10 @@ const LAYOUT_KEY = 'robco-dock-layout-v1';
 const TOPBAR_H = 40;
 const DOCK_MIN = 240;
 const DOCK_MAX = 560;
+const BOTTOM_MIN = 140;
+const BOTTOM_MAX = 520;
 const EDGE_SNAP = 56;      // px from a screen edge that counts as "over the dock"
+const SIDES = ['left', 'right', 'bottom', 'top'];
 const Z_DOCK = 2900;
 const Z_FLOAT = 3000;      // floating windows live in 3000..3390 (ConnectUI modal is 4000)
 const Z_TOPBAR = 3500;
@@ -48,6 +51,7 @@ const PANEL_DEFS = {
     stream:    { title: 'Stream Rate',     icon: 'stream',    dock: 'right', order: 5 },
     blender:   { title: 'Blender Export',  icon: 'blender',   dock: 'right', order: 6 },
     dynamics:  { title: 'Joint Dynamics',  icon: 'dynamics',  dock: 'float', order: 0 },
+    takt:      { title: 'Takt Time',       icon: 'takt',      dock: 'bottom', order: 0 },
 };
 
 // Panels that only exist after some event — shown greyed out in the View menu until then.
@@ -62,6 +66,7 @@ const AVAILABILITY_HINT = {
     dynamics: 'loads with a robot',
     blender: 'loads with a robot',
     stream: 'appears on live connect',
+    takt: 'loads with a robot',
 };
 
 const CSS = `
@@ -111,10 +116,25 @@ const CSS = `
 }
 .robco-dock.left  { left: 0;  border-right: 1px solid rgba(255,255,255,0.09); }
 .robco-dock.right { right: 0; border-left:  1px solid rgba(255,255,255,0.09); }
+.robco-dock.bottom, .robco-dock.top {
+    left: 0; right: 0; flex-direction: row; align-items: stretch;
+    overflow-x: auto; overflow-y: hidden;
+}
+.robco-dock.bottom { top: auto; bottom: 0; border-top: 1px solid rgba(255,255,255,0.09); }
+.robco-dock.top    { top: ${TOPBAR_H}px; bottom: auto; border-bottom: 1px solid rgba(255,255,255,0.09); }
+.robco-dock.bottom > .robco-dock-item.docked, .robco-dock.top > .robco-dock-item.docked {
+    flex: 1 1 0; min-width: 280px; border-bottom: none;
+    border-right: 1px solid rgba(255,255,255,0.07); display: flex;
+}
+.robco-dock.bottom > .robco-dock-item.docked > .robco-dock-item-body,
+.robco-dock.top > .robco-dock-item.docked > .robco-dock-item-body { flex: 1; overflow-y: auto; }
 .robco-dock.drop-hint { background: rgba(21,30,41,0.97); }
 .robco-dock-splitter {
     position: fixed; top: ${TOPBAR_H}px; bottom: 0; width: 6px; z-index: ${Z_DOCK + 1};
     cursor: col-resize; background: transparent;
+}
+.robco-dock-splitter.horizontal {
+    top: auto; bottom: 0; width: auto; height: 6px; cursor: row-resize;
 }
 .robco-dock-splitter:hover, .robco-dock-splitter.active { background: rgba(47,129,247,0.45); }
 .robco-drop-indicator {
@@ -197,8 +217,8 @@ class DockManager {
         this._zTop = Z_FLOAT;
         this._openMenu = null;
         this.state = {
-            v: 1, leftWidth: 300, rightWidth: 340,
-            left: [], right: [],           // docked order (only keys seen at least once)
+            v: 1, leftWidth: 300, rightWidth: 340, bottomHeight: 240, topHeight: 240,
+            left: [], right: [], bottom: [], top: [], // docked order (only keys seen at least once)
             float: {},                     // key -> {left, top}
             collapsed: {},                 // key -> bool
             closed: [],                    // keys hidden by the user
@@ -225,8 +245,10 @@ class DockManager {
         this.docks = {
             left: el('div', 'robco-dock left'),
             right: el('div', 'robco-dock right'),
+            bottom: el('div', 'robco-dock bottom'),
+            top: el('div', 'robco-dock top'),
         };
-        for (const side of ['left', 'right']) {
+        for (const side of SIDES) {
             const d = this.docks[side];
             d.style.position = 'fixed'; // keep before width so first paint is stable
             document.body.appendChild(d);
@@ -292,6 +314,10 @@ class DockManager {
             this._placeDocked(rec, 'left', { index: this.state.left.indexOf(key) });
         } else if (this.state.right.includes(key)) {
             this._placeDocked(rec, 'right', { index: this.state.right.indexOf(key) });
+        } else if (this.state.bottom.includes(key)) {
+            this._placeDocked(rec, 'bottom', { index: this.state.bottom.indexOf(key) });
+        } else if ((this.state.top || []).includes(key)) {
+            this._placeDocked(rec, 'top', { index: this.state.top.indexOf(key) });
         } else if (this.state.float[key]) {
             this._placeFloating(rec, this.state.float[key]);
         } else if (def.dock === 'float') {
@@ -407,10 +433,13 @@ class DockManager {
      *   drag & drop so hidden/unregistered keys in the order array can't skew indices).
      */
     _placeDocked(rec, side, where = {}) {
+        this.state[side] = this.state[side] || [];
         const order = this.state[side];
-        const other = side === 'left' ? this.state.right : this.state.left;
-        const oi = other.indexOf(rec.key);
-        if (oi >= 0) other.splice(oi, 1);
+        for (const s of SIDES) {
+            if (s === side) continue;
+            const i = (this.state[s] || []).indexOf(rec.key);
+            if (i >= 0) this.state[s].splice(i, 1);
+        }
         delete this.state.float[rec.key];
 
         const cur = order.indexOf(rec.key);
@@ -442,8 +471,8 @@ class DockManager {
     }
 
     _placeFloating(rec, pos) {
-        for (const side of ['left', 'right']) {
-            const i = this.state[side].indexOf(rec.key);
+        for (const side of SIDES) {
+            const i = (this.state[side] || []).indexOf(rec.key);
             if (i >= 0) this.state[side].splice(i, 1);
         }
         rec.location = 'float';
@@ -495,8 +524,8 @@ class DockManager {
     resetLayout() {
         localStorage.removeItem(LAYOUT_KEY);
         this.state = {
-            v: 1, leftWidth: 300, rightWidth: 340,
-            left: [], right: [], float: {}, collapsed: {}, closed: [],
+            v: 1, leftWidth: 300, rightWidth: 340, bottomHeight: 240, topHeight: 240,
+            left: [], right: [], bottom: [], top: [], float: {}, collapsed: {}, closed: [],
         };
         const recs = [...this.panels.values()];
         for (const rec of recs) {
@@ -517,7 +546,8 @@ class DockManager {
         for (const rec of [...this.panels.values()].sort((a, b) => a.def.order - b.def.order)) {
             if (rec.popup) this._returnFromPopup(rec);
             if (rec.location === 'float') {
-                this._placeDocked(rec, rec.def.dock === 'right' ? 'right' : 'left');
+                const side = ['right', 'bottom', 'top'].includes(rec.def.dock) ? rec.def.dock : 'left';
+                this._placeDocked(rec, side);
             }
         }
         this._save();
@@ -546,6 +576,10 @@ class DockManager {
                 this._placeDocked(rec, 'left', { index: this.state.left.indexOf(rec.key) });
             } else if (this.state.right.includes(rec.key)) {
                 this._placeDocked(rec, 'right', { index: this.state.right.indexOf(rec.key) });
+            } else if (this.state.bottom.includes(rec.key)) {
+                this._placeDocked(rec, 'bottom', { index: this.state.bottom.indexOf(rec.key) });
+            } else if ((this.state.top || []).includes(rec.key)) {
+                this._placeDocked(rec, 'top', { index: this.state.top.indexOf(rec.key) });
             } else if (this.state.float[rec.key]) {
                 this._placeFloating(rec, this.state.float[rec.key]);
             } else if (rec.def.dock === 'float') {
@@ -563,13 +597,22 @@ class DockManager {
     // geometry: docks <-> canvas
     // ------------------------------------------------------------------
     _dockVisible(side) {
-        return this.state[side].some((k) => {
+        return (this.state[side] || []).some((k) => {
             const r = this.panels.get(k);
             return r && !r.hidden && !r.popup;
         });
     }
 
     _layoutDocks() {
+        // Top & bottom strips span the FULL window width; the side docks (and their splitters)
+        // are reduced in height instead, sitting between the two strips.
+        const topVisible = this._dockVisible('top');
+        const bottomVisible = this._dockVisible('bottom');
+        const th = this.state.topHeight || 240;
+        const bh = this.state.bottomHeight || 240;
+        const insetTop = TOPBAR_H + (topVisible ? th : 0);
+        const insetBottom = bottomVisible ? bh : 0;
+
         for (const side of ['left', 'right']) {
             const visible = this._dockVisible(side);
             const w = side === 'left' ? this.state.leftWidth : this.state.rightWidth;
@@ -577,32 +620,64 @@ class DockManager {
             if (!d) continue;
             d.style.width = visible ? `${w}px` : '0px';
             d.style.display = visible ? 'flex' : 'none';
+            d.style.top = `${insetTop}px`;
+            d.style.bottom = `${insetBottom}px`;
             const sp = this._splitters?.[side];
             if (sp) {
                 sp.style.display = visible ? 'block' : 'none';
+                sp.style.top = `${insetTop}px`;
+                sp.style.bottom = `${insetBottom}px`;
                 if (side === 'left') sp.style.left = `${w - 3}px`;
                 else sp.style.right = `${w - 3}px`;
             }
         }
+        for (const side of ['top', 'bottom']) {
+            const visible = side === 'top' ? topVisible : bottomVisible;
+            const h = side === 'top' ? th : bh;
+            const d = this.docks?.[side];
+            if (!d) continue;
+            d.style.display = visible ? 'flex' : 'none';
+            d.style.left = '0px';
+            d.style.right = '0px';
+            d.style.height = visible ? `${h}px` : '0px';
+            const sp = this._splitters?.[side];
+            if (sp) {
+                sp.style.display = visible ? 'block' : 'none';
+                sp.style.left = '0px';
+                sp.style.right = '0px';
+                if (side === 'top') { sp.style.top = `${TOPBAR_H + th - 3}px`; sp.style.bottom = 'auto'; }
+                else { sp.style.bottom = `${bh - 3}px`; sp.style.top = 'auto'; }
+            }
+        }
         const cc = document.getElementById('canvas-container');
         if (cc) {
-            cc.style.top = `${TOPBAR_H}px`;
+            cc.style.top = `${insetTop}px`;
             cc.style.left = this._dockVisible('left') ? `${this.state.leftWidth}px` : '0px';
             cc.style.right = this._dockVisible('right') ? `${this.state.rightWidth}px` : '0px';
+            cc.style.bottom = `${insetBottom}px`;
         }
     }
 
     _buildSplitter(side) {
         this._splitters = this._splitters || {};
-        const sp = el('div', 'robco-dock-splitter');
+        const horizontal = side === 'bottom' || side === 'top';
+        const sp = el('div', `robco-dock-splitter${horizontal ? ' horizontal' : ''}`);
         sp.addEventListener('pointerdown', (e) => {
             e.preventDefault();
             sp.classList.add('active');
             sp.setPointerCapture(e.pointerId);
             const move = (ev) => {
-                const w = side === 'left' ? ev.clientX : window.innerWidth - ev.clientX;
-                this.state[side === 'left' ? 'leftWidth' : 'rightWidth'] =
-                    Math.min(DOCK_MAX, Math.max(DOCK_MIN, Math.round(w)));
+                if (side === 'bottom') {
+                    this.state.bottomHeight = Math.min(BOTTOM_MAX,
+                        Math.max(BOTTOM_MIN, Math.round(window.innerHeight - ev.clientY)));
+                } else if (side === 'top') {
+                    this.state.topHeight = Math.min(BOTTOM_MAX,
+                        Math.max(BOTTOM_MIN, Math.round(ev.clientY - TOPBAR_H)));
+                } else {
+                    const w = side === 'left' ? ev.clientX : window.innerWidth - ev.clientX;
+                    this.state[side === 'left' ? 'leftWidth' : 'rightWidth'] =
+                        Math.min(DOCK_MAX, Math.max(DOCK_MIN, Math.round(w)));
+                }
                 this._layoutDocks();
             };
             const up = () => {
@@ -699,50 +774,72 @@ class DockManager {
 
     _updateDropTarget(rec, x, y) {
         let side = null;
-        for (const s of ['left', 'right']) {
-            const visible = this._dockVisible(s);
-            const w = s === 'left' ? this.state.leftWidth : this.state.rightWidth;
-            const inDock = visible &&
-                (s === 'left' ? x <= w : x >= window.innerWidth - w);
-            const nearEdge = !visible &&
-                (s === 'left' ? x <= EDGE_SNAP : x >= window.innerWidth - EDGE_SNAP);
-            if (y >= TOPBAR_H && (inDock || nearEdge)) { side = s; break; }
+        // Full-width strips win in their bands; the side docks take the middle region.
+        const topBand = TOPBAR_H + (this._dockVisible('top') ? this.state.topHeight || 240 : EDGE_SNAP);
+        const bottomBand = window.innerHeight - (this._dockVisible('bottom') ? this.state.bottomHeight || 240 : EDGE_SNAP);
+        if (y >= TOPBAR_H && y <= topBand) side = 'top';
+        else if (y >= bottomBand) side = 'bottom';
+        if (!side) {
+            for (const s of ['left', 'right']) {
+                const visible = this._dockVisible(s);
+                const w = s === 'left' ? this.state.leftWidth : this.state.rightWidth;
+                const inDock = visible &&
+                    (s === 'left' ? x <= w : x >= window.innerWidth - w);
+                const nearEdge = !visible &&
+                    (s === 'left' ? x <= EDGE_SNAP : x >= window.innerWidth - EDGE_SNAP);
+                if (y >= TOPBAR_H && (inDock || nearEdge)) { side = s; break; }
+            }
         }
         if (!side) { this._hideDropTarget(); return; }
 
+        const horizontal = side === 'bottom' || side === 'top';
         const dockEl = this.docks[side];
         dockEl.classList.add('drop-hint');
         dockEl.style.display = 'flex';
         if (!this._dockVisible(side)) {
-            dockEl.style.width = `${EDGE_SNAP}px`; // temporary strip while hovering an empty dock
+            if (horizontal) dockEl.style.height = `${EDGE_SNAP}px`;
+            else dockEl.style.width = `${EDGE_SNAP}px`; // temporary strip while hovering an empty dock
         }
         const visible = this.state[side]
             .map((k) => this.panels.get(k))
             .filter((r) => r && !r.hidden && !r.popup && r.key !== rec.key);
         let beforeKey = null; // null = drop at the end
-        let indicatorY = 0;
+        let indicatorPos = 0;
         const dockRect = dockEl.getBoundingClientRect();
         for (const r of visible) {
             const b = r.item.getBoundingClientRect();
-            if (y < b.top + b.height / 2) {
+            const mid = horizontal ? b.left + b.width / 2 : b.top + b.height / 2;
+            const cursor = horizontal ? x : y;
+            if (cursor < mid) {
                 beforeKey = r.key;
-                indicatorY = b.top - dockRect.top + dockEl.scrollTop;
+                indicatorPos = horizontal
+                    ? b.left - dockRect.left + dockEl.scrollLeft
+                    : b.top - dockRect.top + dockEl.scrollTop;
                 break;
             }
-            indicatorY = b.bottom - dockRect.top + dockEl.scrollTop;
+            indicatorPos = horizontal
+                ? b.right - dockRect.left + dockEl.scrollLeft
+                : b.bottom - dockRect.top + dockEl.scrollTop;
         }
         if (this._indicator.parentElement !== dockEl) dockEl.appendChild(this._indicator);
         this._indicator.style.display = 'block';
-        this._indicator.style.top = `${Math.max(0, indicatorY - 1)}px`;
+        if (horizontal) { // vertical insertion line between side-by-side panels
+            this._indicator.style.cssText += ';left:auto;right:auto;top:6px;bottom:6px;height:auto;width:2px;';
+            this._indicator.style.left = `${Math.max(0, indicatorPos - 1)}px`;
+        } else {
+            this._indicator.style.cssText += ';left:6px;right:6px;bottom:auto;width:auto;height:2px;';
+            this._indicator.style.top = `${Math.max(0, indicatorPos - 1)}px`;
+        }
         this._dropTarget = { side, beforeKey };
-        const other = side === 'left' ? 'right' : 'left';
-        this.docks[other].classList.remove('drop-hint');
+        for (const s of SIDES) {
+            if (s !== side) this.docks[s].classList.remove('drop-hint');
+        }
     }
 
     _hideDropTarget() {
         this._dropTarget = null;
         this._indicator.style.display = 'none';
-        for (const side of ['left', 'right']) this.docks[side]?.classList.remove('drop-hint');
+        for (const side of SIDES) this.docks[side]?.classList.remove('drop-hint');
         this._layoutDocks(); // restores width/display of a temporarily shown empty dock
     }
 
@@ -1006,6 +1103,8 @@ class DockManager {
         // prune stale keys, then persist
         this.state.left = this.state.left.filter((k, i, a) => a.indexOf(k) === i);
         this.state.right = this.state.right.filter((k, i, a) => a.indexOf(k) === i);
+        this.state.bottom = (this.state.bottom || []).filter((k, i, a) => a.indexOf(k) === i);
+        this.state.top = (this.state.top || []).filter((k, i, a) => a.indexOf(k) === i);
         try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(this.state)); } catch { /* ignore */ }
     }
 }
