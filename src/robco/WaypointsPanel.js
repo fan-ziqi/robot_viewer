@@ -450,6 +450,8 @@ export class WaypointsPanel {
             this._loadedName = name;
             if (name) this._flowName.value = name;
             const notes = [];
+            const docFolders = new Set(specs.filter((s) => s.group?.exportDoc).map((s) => s.group.key)).size;
+            if (docFolders) notes.push(`${docFolders} doc folder(s)`);
             if (kept?.length) notes.push(`kept as RobFlow nodes: ${kept.join(', ')}`);
             if (skipped.length) notes.push(`dropped: ${skipped.join(', ')}`);
             this._status.textContent = `loaded "${name}" — ${specs.length} step(s)${notes.length ? ' · ' + notes.join(' · ') : ''}`;
@@ -1035,10 +1037,15 @@ export class WaypointsPanel {
             const { flow, stepNodeIds } = buildSequenceFlow(name, steps, { flowUuid: this._currentFlowUuid || undefined, loop });
             let nodeIds = stepNodeIds;
             let uuid = flow.uuid;
+            let groupNote = '';
             if (this._currentFlowUuid) {
                 try {
                     await this.client.patchFlow(this._currentFlowUuid, flowGraphPatch(flow));
                     uuid = this._currentFlowUuid;
+                    if (flow.groups.length) {
+                        groupNote = await this._ensureGroupsPersisted(uuid, flow);
+                        uuid = this._currentFlowUuid || uuid; // recreate may have re-keyed the flow
+                    }
                 } catch (e) {
                     if (!/\b404\b/.test(e.message)) throw e;
                     // The flow is gone (e.g. a reset cloud session) — import a fresh one.
@@ -1058,7 +1065,8 @@ export class WaypointsPanel {
             this._lastPush = { flowUuid: uuid, name };
             // Surface any blend reduced to fit its segment, so a raised value that hit the cap
             // doesn't look like the edit was ignored.
-            const blendNote = clampedBlend.length ? ` · blend capped: ${clampedBlend.join(', ')}` : '';
+            const blendNote = (clampedBlend.length ? ` · blend capped: ${clampedBlend.join(', ')}` : '')
+                + (flow.groups.length ? ` · ${flow.groups.length} doc group(s)` : '') + groupNote;
             if (run) {
                 await this._beginRun(uuid);
                 this._status.textContent = `running "${name}" (${steps.length} step(s))${blendNote}`;
@@ -1073,6 +1081,28 @@ export class WaypointsPanel {
             console.error('[RobCo] waypoint push failed:', e);
         } finally {
             this._setBusy(false);
+        }
+    }
+
+    /**
+     * PATCH accepts `groups` in its schema, but some backends validate without persisting them —
+     * the flow updates fine while its Documentation Groups silently vanish. Verify by re-reading
+     * the flow; if our groups were dropped, recreate the flow (delete + import under the same
+     * uuid — import is the path that provably persists groups). Returns a status-line note.
+     */
+    async _ensureGroupsPersisted(uuid, flow) {
+        try {
+            const back = await this.client.getExportableFlow(uuid);
+            if ((back?.groups || []).length) return ''; // PATCH persisted them — nothing to do
+            await this.client.deleteFlow(uuid);
+            const created = await this.client.importFlow(flow);
+            const newUuid = created?.uuid || flow.uuid;
+            if (newUuid !== uuid) this._currentFlowUuid = newUuid;
+            return ' · doc groups reapplied (backend drops groups on update — flow recreated)';
+        } catch (e) {
+            // The patch itself succeeded — don't fail the push over the verification.
+            console.warn('[RobCo] doc-group verification failed:', e);
+            return ' · ⚠ could not verify doc groups (see console)';
         }
     }
 

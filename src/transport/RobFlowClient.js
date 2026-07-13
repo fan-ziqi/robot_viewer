@@ -191,6 +191,11 @@ export class RobFlowClient {
         return this._put(`/flows/${uuid}/run`);
     }
 
+    /** DELETE /flows/{uuid} — remove a flow (409 while it is running). */
+    deleteFlow(uuid) {
+        return this._delete(`/flows/${uuid}`);
+    }
+
     /** GET /flows/ — list flows (full Flow objects: uuid, name, nodes, edges, settings; no variables). */
     listFlows() {
         return this._get('/flows/');
