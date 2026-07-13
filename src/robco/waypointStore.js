@@ -4,8 +4,17 @@
  * A step is one of:
  *   move    — a waypoint: world-frame TCP pose (marker + IK seed), a captured joint snapshot, an
  *             optional exact cartesian, a per-step mode ('joint'|'cartesian') and vel/acc/blend.
+ *   tool    — a gripper/tool change at this point (native RobFlow setTool node; toolId null = none).
  *   delay   — a dwell (seconds).
  *   payload — set payload during the run (mass kg + CoM mm).
+ *   output  — drive a digital output (native RobFlow setOutput node).
+ *   node    — a RobFlow node the viewer doesn't edit, kept VERBATIM (raw node + captured branch
+ *             subgraphs) so a push re-emits it instead of destroying it.
+ *
+ * FOLDERS: steps may carry a groupId pointing into this.folders — a foldable, named unit with an
+ * optional description and an exportDoc flag (push it as a RobFlow Documentation Group). A folder's
+ * members are one CONTIGUOUS run of the list; a folder of same-mode moves exports as ONE RobFlow
+ * movement node. Member markers get a color halo so the grouping is visible in 3D too.
  *
  * List order IS the flow execution order (and matches a loaded flow's order). A move's source of
  * truth is its **world-frame** pose so markers stay fixed when the base moves; the base-frame pose
@@ -17,6 +26,7 @@ import * as THREE from 'three';
 const KEY = 'robco-waypoints';
 const ONE = new THREE.Vector3(1, 1, 1);
 export const DEFAULT_BLEND_MM = 50;
+export const FOLDER_COLORS = ['#2f81f7', '#3fb950', '#e3873a', '#8957e5', '#d29922', '#db61a2', '#39c5cf'];
 let _seq = 0;
 
 const uid = (p) => `${p}${++_seq}`;
@@ -36,7 +46,9 @@ export class WaypointStore {
         this.sm = sm;
         this.base = baseFrame;
         this.items = [];
-        this.onChange = null; // () => void (panel re-render)
+        this.folders = {}; // folderId -> {name, description, exportDoc, collapsed, color}
+        this.onChange = null; // () => void (panel re-render; single owner — WaypointsPanel)
+        this._listeners = new Set(); // additional observers (e.g. the takt-time diagram)
         this._selectedId = null; // highlighted marker (persisted so a base move doesn't wipe it)
 
         this.group = new THREE.Group();
@@ -95,36 +107,82 @@ export class WaypointStore {
         return it;
     }
 
+    /** Gripper/tool-change step (native RobFlow setTool node). toolId null = remove the tool. */
+    addTool(toolId = null, index = null) {
+        const it = { id: uid('tl'), kind: 'tool', toolId: toolId ?? null };
+        this._insert(it, index);
+        this._commit();
+        return it;
+    }
+
     /**
      * Replace the whole sequence (e.g. after loading a flow). `specs` are step descriptors; move
      * specs must carry a `worldMatrix` (THREE.Matrix4) for the marker, plus joints and/or cartesian.
+     * A spec's group:{key,name,description,exportDoc} becomes a folder (equal keys = one folder).
      */
     loadSteps(specs) {
         this._clearMarkers();
         this.items = [];
+        this.folders = {};
+        const keyToFolder = new Map();
         for (const s of specs || []) {
+            let it;
             if (s.kind === 'delay') {
-                this.items.push({ id: uid('dl'), kind: 'delay', seconds: Math.max(0, +s.seconds || 0) });
+                it = { id: uid('dl'), kind: 'delay', seconds: Math.max(0, +s.seconds || 0) };
             } else if (s.kind === 'payload') {
-                this.items.push({ id: uid('pl'), kind: 'payload', mass: Math.max(0, +s.mass || 0), com: (s.com || [0, 0, 0]).map((v) => +v || 0) });
+                it = { id: uid('pl'), kind: 'payload', mass: Math.max(0, +s.mass || 0), com: (s.com || [0, 0, 0]).map((v) => +v || 0) };
             } else if (s.kind === 'output') {
-                this.items.push({
+                it = {
                     id: uid('out'), kind: 'output',
                     bankId: Math.max(0, Math.round(+s.bankId || 0)), outputId: Math.max(0, Math.round(+s.outputId || 0)),
                     state: !!s.state, delay: Math.max(0, +s.delay || 0),
-                });
+                };
+            } else if (s.kind === 'tool') {
+                it = { id: uid('tl'), kind: 'tool', toolId: s.toolId ?? null };
+            } else if (s.kind === 'node') {
+                it = {
+                    id: uid('nd'), kind: 'node',
+                    nodeType: s.nodeType || 'node', label: s.label || s.nodeType || 'node',
+                    raw: s.raw || null,
+                    extraNodes: s.extraNodes || [], extraEdges: s.extraEdges || [],
+                    continueHandle: s.continueHandle !== undefined ? s.continueHandle : 'out',
+                };
             } else {
-                this.items.push(this._newMove({
+                it = this._newMove({
                     name: s.name || `P${this._moveCount() + 1}`,
                     mode: s.mode === 'cartesian' ? 'cartesian' : 'joint',
                     worldPose: s.worldMatrix ? this._poseFromMatrix(s.worldMatrix) : null,
                     joints: (s.joints || []).slice(),
                     cartesian: s.cartesian ? { position: s.cartesian.position.slice(), orientation: s.cartesian.orientation.slice() } : null,
                     velocity: s.velocity, acceleration: s.acceleration, blendingRadius: s.blendingRadius,
-                }));
+                });
             }
+            if (s.group?.key) {
+                let fid = keyToFolder.get(s.group.key);
+                if (!fid) {
+                    fid = uid('f');
+                    this.folders[fid] = {
+                        name: s.group.name || 'Folder', description: s.group.description || '',
+                        exportDoc: !!s.group.exportDoc, collapsed: false,
+                        color: FOLDER_COLORS[keyToFolder.size % FOLDER_COLORS.length],
+                    };
+                    keyToFolder.set(s.group.key, fid);
+                }
+                it.groupId = fid;
+            }
+            if (s.srcNodeId) it.srcNodeId = s.srcNodeId; // RobFlow node this step came from (timing key)
+            this.items.push(it);
         }
         this._commit();
+    }
+
+    /** Re-key steps to the RobFlow nodes a push just emitted (ids[i] belongs to items[i] — the
+     *  builder's stepNodeIds). Keys the per-node execution timer. */
+    applyNodeIds(ids) {
+        if (!Array.isArray(ids)) return;
+        this.items.forEach((it, i) => { it.srcNodeId = ids[i] || null; });
+        this._persist();
+        this._touch();
     }
 
     _newMove(spec) {
@@ -149,6 +207,11 @@ export class WaypointStore {
     _insert(it, index) {
         if (index == null || index < 0 || index >= this.items.length) this.items.push(it);
         else this.items.splice(index, 0, it);
+        // Inserted between two members of the same folder → join it (keeps folders contiguous).
+        const i = this.items.indexOf(it);
+        const p = this.items[i - 1];
+        const n = this.items[i + 1];
+        if (p?.groupId && p.groupId === n?.groupId) it.groupId = p.groupId;
     }
 
     // --- mutate --------------------------------------------------------
@@ -158,12 +221,14 @@ export class WaypointStore {
         const [it] = this.items.splice(i, 1);
         this._disposeMarker(it._marker);
         if (this._selectedId === id) this._selectedId = null;
+        this._pruneFolders();
         this._commit();
     }
 
     clear() {
         this._clearMarkers();
         this.items = [];
+        this.folders = {};
         this._commit();
     }
 
@@ -194,7 +259,94 @@ export class WaypointStore {
         // (from < to) must target `to - 1` to land where the user dropped it.
         const dest = Math.max(0, Math.min(this.items.length, to > from ? to - 1 : to));
         this.items.splice(dest, 0, it);
+        // Folder membership follows the drop position: strictly inside a folder run → join it;
+        // at a folder's edge, keep your own folder; anywhere else → leave the folder.
+        const p = this.items[dest - 1];
+        const n = this.items[dest + 1];
+        if (p?.groupId && p.groupId === n?.groupId) it.groupId = p.groupId;
+        else if (!(it.groupId && (p?.groupId === it.groupId || n?.groupId === it.groupId))) it.groupId = undefined;
+        this._pruneFolders();
         this._commit();
+    }
+
+    // --- folders ---------------------------------------------------------
+    /** Wrap the given step ids (plus anything between them) in a new folder. Returns its id. */
+    createFolder(name = 'Folder', ids = []) {
+        const idxs = ids.map((id) => this.items.findIndex((w) => w.id === id)).filter((i) => i >= 0);
+        if (!idxs.length) return null;
+        const fid = uid('f');
+        this.folders[fid] = {
+            name, description: '', exportDoc: false, collapsed: false,
+            color: FOLDER_COLORS[Object.keys(this.folders).length % FOLDER_COLORS.length],
+        };
+        const lo = Math.min(...idxs);
+        const hi = Math.max(...idxs);
+        for (let i = lo; i <= hi; i++) this.items[i].groupId = fid;
+        this._commit();
+        return fid;
+    }
+
+    /** Patch folder props (name / description / exportDoc / collapsed). */
+    setFolder(fid, patch) {
+        const f = this.folders[fid];
+        if (!f) return;
+        Object.assign(f, patch);
+        if ('color' in patch) this.items.forEach((it) => { if (it.groupId === fid) this._styleMarker(it, it.id === this._selectedId); });
+        this._commit();
+    }
+
+    /** Dissolve a folder — its steps stay, ungrouped. */
+    ungroup(fid) {
+        for (const it of this.items) if (it.groupId === fid) it.groupId = undefined;
+        delete this.folders[fid];
+        this._commit();
+    }
+
+    /** Move a step to the END of a folder (drop on its header). */
+    addToFolder(id, fid) {
+        if (!this.folders[fid]) return;
+        const from = this.items.findIndex((w) => w.id === id);
+        if (from < 0) return;
+        const [it] = this.items.splice(from, 1);
+        let end = -1;
+        this.items.forEach((w, i) => { if (w.groupId === fid) end = i; });
+        if (end < 0) { this.items.splice(from, 0, it); return; } // folder emptied mid-flight
+        it.groupId = fid;
+        this.items.splice(end + 1, 0, it);
+        this._commit();
+    }
+
+    /** Move a whole folder block to a new list position (never INTO another folder). */
+    moveFolder(fid, to) {
+        const idxs = this.items.map((w, i) => (w.groupId === fid ? i : -1)).filter((i) => i >= 0);
+        if (!idxs.length) return;
+        const lo = idxs[0];
+        const count = idxs.length;
+        if (to >= lo && to <= lo + count) return; // dropped onto itself
+        const block = this.items.splice(lo, count);
+        let dest = to > lo ? to - count : to;
+        dest = Math.max(0, Math.min(this.items.length, dest));
+        // Landing inside another folder would fragment it — snap to that folder's nearest edge.
+        const g = this.items[dest - 1]?.groupId;
+        if (g && g === this.items[dest]?.groupId) {
+            let s = dest;
+            while (s > 0 && this.items[s - 1].groupId === g) s--;
+            let e = dest;
+            while (e < this.items.length && this.items[e].groupId === g) e++;
+            dest = (dest - s <= e - dest) ? s : e;
+        }
+        this.items.splice(dest, 0, ...block);
+        this._commit();
+    }
+
+    folderOf(it) { return it?.groupId ? this.folders[it.groupId] || null : null; }
+    folderMembers(fid) { return this.items.filter((w) => w.groupId === fid); }
+
+    /** Drop folder entries that lost all their members. */
+    _pruneFolders() {
+        for (const fid of Object.keys(this.folders)) {
+            if (!this.items.some((w) => w.groupId === fid)) delete this.folders[fid];
+        }
     }
 
     setVisible(on) { this.group.visible = on; this.sm.redraw?.(); }
@@ -265,6 +417,15 @@ export class WaypointStore {
         dot.renderOrder = 998;
         g.add(dot);
         g._dot = dot;
+        // Folder halo: a translucent shell in the folder's color, so grouping reads in 3D too.
+        const halo = new THREE.Mesh(
+            new THREE.SphereGeometry(0.019, 16, 12),
+            new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true, opacity: 0.35 }),
+        );
+        halo.renderOrder = 997;
+        halo.visible = false;
+        g.add(halo);
+        g._halo = halo;
         item._marker = g;
         this._placeMarker(item);
         this._styleMarker(item, item.id === this._selectedId);
@@ -296,6 +457,12 @@ export class WaypointStore {
         const color = !item.reachable ? 0xf85149 : selected ? 0xffd000 : base;
         dot.material.color.setHex(color);
         dot.scale.setScalar(selected ? 1.6 : 1);
+        const halo = item._marker?._halo;
+        if (halo) {
+            const f = this.folderOf(item);
+            halo.visible = !!f;
+            if (f) halo.material.color.set(f.color);
+        }
     }
 
     _clearMarkers() {
@@ -328,43 +495,74 @@ export class WaypointStore {
 
     _persist() {
         try {
-            const data = this.items.map((it) => {
-                if (it.kind === 'delay') return { kind: 'delay', id: it.id, seconds: it.seconds };
-                if (it.kind === 'payload') return { kind: 'payload', id: it.id, mass: it.mass, com: it.com };
-                if (it.kind === 'output') return { kind: 'output', id: it.id, bankId: it.bankId, outputId: it.outputId, state: it.state, delay: it.delay };
-                return {
-                    kind: 'move', id: it.id, name: it.name, mode: it.mode,
-                    worldPose: it.worldPose, joints: it.joints, cartesian: it.cartesian || null,
-                    robflowPose: it.robflowPose || null,
-                    velocity: it.velocity, acceleration: it.acceleration, blendingRadius: it.blendingRadius,
-                };
+            const items = this.items.map((it) => {
+                let d;
+                if (it.kind === 'delay') d = { kind: 'delay', id: it.id, seconds: it.seconds };
+                else if (it.kind === 'payload') d = { kind: 'payload', id: it.id, mass: it.mass, com: it.com };
+                else if (it.kind === 'output') d = { kind: 'output', id: it.id, bankId: it.bankId, outputId: it.outputId, state: it.state, delay: it.delay };
+                else if (it.kind === 'tool') d = { kind: 'tool', id: it.id, toolId: it.toolId ?? null };
+                else if (it.kind === 'node') {
+                    d = {
+                        kind: 'node', id: it.id, nodeType: it.nodeType, label: it.label,
+                        raw: it.raw || null, extraNodes: it.extraNodes || [], extraEdges: it.extraEdges || [],
+                        continueHandle: it.continueHandle ?? null,
+                    };
+                } else {
+                    d = {
+                        kind: 'move', id: it.id, name: it.name, mode: it.mode,
+                        worldPose: it.worldPose, joints: it.joints, cartesian: it.cartesian || null,
+                        robflowPose: it.robflowPose || null,
+                        velocity: it.velocity, acceleration: it.acceleration, blendingRadius: it.blendingRadius,
+                    };
+                }
+                if (it.groupId) d.groupId = it.groupId;
+                if (it.srcNodeId) d.srcNodeId = it.srcNodeId;
+                return d;
             });
-            localStorage.setItem(KEY, JSON.stringify(data));
+            localStorage.setItem(KEY, JSON.stringify({ v: 2, folders: this.folders, items }));
         } catch { /* ignore */ }
     }
 
     _restore() {
         try {
-            const data = JSON.parse(localStorage.getItem(KEY));
-            if (!Array.isArray(data)) return;
+            const raw = JSON.parse(localStorage.getItem(KEY));
+            // v2 payload is {v, folders, items}; anything older is a bare items array.
+            const data = Array.isArray(raw) ? raw : (Array.isArray(raw?.items) ? raw.items : null);
+            if (!data) return;
+            if (raw?.folders && typeof raw.folders === 'object') this.folders = raw.folders;
+            for (const fid of Object.keys(this.folders)) this._bumpSeq(fid);
             for (const d of data) {
                 const kind = d.kind || 'move'; // legacy entries had no kind
-                if (kind === 'delay') { const id = d.id || uid('dl'); this._bumpSeq(id); this.items.push({ id, kind: 'delay', seconds: Math.max(0, +d.seconds || 0) }); continue; }
-                if (kind === 'payload') { const id = d.id || uid('pl'); this._bumpSeq(id); this.items.push({ id, kind: 'payload', mass: Math.max(0, +d.mass || 0), com: (d.com || [0, 0, 0]).map((v) => +v || 0) }); continue; }
-                if (kind === 'output') { const id = d.id || uid('out'); this._bumpSeq(id); this.items.push({ id, kind: 'output', bankId: Math.max(0, Math.round(+d.bankId || 0)), outputId: Math.max(0, Math.round(+d.outputId || 0)), state: !!d.state, delay: Math.max(0, +d.delay || 0) }); continue; }
-                if (kind !== 'move') continue; // forward-compat: a kind from a newer build must not become a bogus move row
-                const it = {
-                    id: d.id || uid('wp'), kind: 'move', name: d.name, mode: d.mode === 'cartesian' ? 'cartesian' : 'joint',
-                    worldPose: d.worldPose || null, joints: d.joints || [], cartesian: d.cartesian || null,
-                    robflowPose: d.robflowPose || null,
-                    velocity: clamp01(d.velocity ?? 1), acceleration: clamp01(d.acceleration ?? 1),
-                    blendingRadius: Math.max(0, Math.round(d.blendingRadius ?? DEFAULT_BLEND_MM)),
-                    reachable: true,
-                };
+                let it = null;
+                if (kind === 'delay') it = { id: d.id || uid('dl'), kind: 'delay', seconds: Math.max(0, +d.seconds || 0) };
+                else if (kind === 'payload') it = { id: d.id || uid('pl'), kind: 'payload', mass: Math.max(0, +d.mass || 0), com: (d.com || [0, 0, 0]).map((v) => +v || 0) };
+                else if (kind === 'output') it = { id: d.id || uid('out'), kind: 'output', bankId: Math.max(0, Math.round(+d.bankId || 0)), outputId: Math.max(0, Math.round(+d.outputId || 0)), state: !!d.state, delay: Math.max(0, +d.delay || 0) };
+                else if (kind === 'tool') it = { id: d.id || uid('tl'), kind: 'tool', toolId: d.toolId ?? null };
+                else if (kind === 'node') {
+                    it = {
+                        id: d.id || uid('nd'), kind: 'node',
+                        nodeType: d.nodeType || 'node', label: d.label || d.nodeType || 'node',
+                        raw: d.raw || null, extraNodes: d.extraNodes || [], extraEdges: d.extraEdges || [],
+                        continueHandle: d.continueHandle ?? null,
+                    };
+                } else if (kind === 'move') {
+                    it = {
+                        id: d.id || uid('wp'), kind: 'move', name: d.name, mode: d.mode === 'cartesian' ? 'cartesian' : 'joint',
+                        worldPose: d.worldPose || null, joints: d.joints || [], cartesian: d.cartesian || null,
+                        robflowPose: d.robflowPose || null,
+                        velocity: clamp01(d.velocity ?? 1), acceleration: clamp01(d.acceleration ?? 1),
+                        blendingRadius: Math.max(0, Math.round(d.blendingRadius ?? DEFAULT_BLEND_MM)),
+                        reachable: true,
+                    };
+                }
+                if (!it) continue; // forward-compat: a kind from a newer build must not become a bogus row
+                if (d.groupId && this.folders[d.groupId]) it.groupId = d.groupId;
+                if (d.srcNodeId) it.srcNodeId = d.srcNodeId;
                 this._bumpSeq(it.id);
-                if (it.worldPose) { it._marker = this._makeMarker(it); this.group.add(it._marker); }
+                if (it.kind === 'move' && it.worldPose) { it._marker = this._makeMarker(it); this.group.add(it._marker); }
                 this.items.push(it);
             }
+            this._pruneFolders();
         } catch { /* ignore */ }
     }
 
@@ -373,7 +571,18 @@ export class WaypointStore {
         if (!Number.isNaN(n) && n > _seq) _seq = n;
     }
 
-    _touch() { try { this.onChange?.(); } catch (e) { console.warn('[RobCo] waypointStore.onChange:', e); } }
+    /** Register an additional change observer (onChange stays the panel's). @returns unsubscribe */
+    subscribe(fn) {
+        this._listeners.add(fn);
+        return () => this._listeners.delete(fn);
+    }
+
+    _touch() {
+        try { this.onChange?.(); } catch (e) { console.warn('[RobCo] waypointStore.onChange:', e); }
+        for (const fn of this._listeners) {
+            try { fn(); } catch (e) { console.warn('[RobCo] waypointStore listener:', e); }
+        }
+    }
 }
 
 function clamp01(v) {
