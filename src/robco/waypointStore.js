@@ -36,7 +36,8 @@ export class WaypointStore {
         this.sm = sm;
         this.base = baseFrame;
         this.items = [];
-        this.onChange = null; // () => void (panel re-render)
+        this.onChange = null; // () => void (panel re-render — single owner, see onChanged for extras)
+        this._changeListeners = new Set(); // additional subscribers (survive onChange overwrites)
         this._selectedId = null; // highlighted marker (persisted so a base move doesn't wipe it)
 
         this.group = new THREE.Group();
@@ -373,7 +374,19 @@ export class WaypointStore {
         if (!Number.isNaN(n) && n > _seq) _seq = n;
     }
 
-    _touch() { try { this.onChange?.(); } catch (e) { console.warn('[RobCo] waypointStore.onChange:', e); } }
+    /** Subscribe to change notifications WITHOUT racing panels that assign `onChange` directly.
+     *  Returns an unsubscribe function. */
+    onChanged(fn) {
+        this._changeListeners.add(fn);
+        return () => this._changeListeners.delete(fn);
+    }
+
+    _touch() {
+        try { this.onChange?.(); } catch (e) { console.warn('[RobCo] waypointStore.onChange:', e); }
+        for (const fn of this._changeListeners) {
+            try { fn(); } catch (e) { console.warn('[RobCo] waypointStore listener:', e); }
+        }
+    }
 }
 
 function clamp01(v) {

@@ -34,7 +34,8 @@ export class BaseFrame {
     constructor(sm, model) {
         this.sm = sm;
         this.model = model;
-        this.onChange = null; // () => void — fired after the base pose changes (IK re-solve hook)
+        this.onChange = null; // () => void — fired after the base pose changes (single owner, see onChanged)
+        this._changeListeners = new Set(); // additional subscribers (survive onChange overwrites)
 
         this.basePos = new THREE.Vector3(0, 0, 0);
         this.baseQuat = new THREE.Quaternion();
@@ -112,12 +113,19 @@ export class BaseFrame {
         this.setBasePose(new THREE.Vector3(0, 0, 0), new THREE.Quaternion());
     }
 
-    /** After a gizmo has manipulated worldGroup directly, recover basePose = inverse(worldGroup). */
-    recomputeFromWorld() {
+    /**
+     * After a gizmo has manipulated worldGroup directly, recover basePose = inverse(worldGroup).
+     * Pass {commit:false} for intermediate drag frames: basePos/baseQuat (and the panel readout)
+     * stay live, but the expensive onChange consumers (per-waypoint reachability IK, waypoint-list
+     * rebuild, singularity re-scan) and the localStorage write only run on the final commit —
+     * firing them per pointermove freezes the app on large waypoint sets.
+     */
+    recomputeFromWorld({ commit = true } = {}) {
         this.worldGroup.updateMatrix();
         const inv = this.worldGroup.matrix.clone().invert();
         const s = new THREE.Vector3();
         inv.decompose(this.basePos, this.baseQuat, s);
+        if (!commit) return; // gizmo already redraws while dragging
         this._persist();
         this._touch();
     }
@@ -160,8 +168,18 @@ export class BaseFrame {
         this.worldGroup.updateMatrixWorld(true);
     }
 
+    /** Subscribe to change notifications WITHOUT racing panels that assign `onChange` directly.
+     *  Returns an unsubscribe function. */
+    onChanged(fn) {
+        this._changeListeners.add(fn);
+        return () => this._changeListeners.delete(fn);
+    }
+
     _touch() {
         this.sm?.redraw?.();
         try { this.onChange?.(); } catch (e) { console.warn('[RobCo] BaseFrame.onChange:', e); }
+        for (const fn of this._changeListeners) {
+            try { fn(); } catch (e) { console.warn('[RobCo] BaseFrame listener:', e); }
+        }
     }
 }

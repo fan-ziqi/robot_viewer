@@ -94,6 +94,10 @@ export class PostFXManager {
             this.composer = composer;
             this.passes = { renderPass, gtao, bloom, smaa };
             this.ready = true;
+            // GTAOPass bakes PERSPECTIVE_CAMERA from camera.isPerspectiveCamera at construction;
+            // our ortho mode fakes the projection on a perspective camera, so re-sync in case the
+            // mode was toggled before this lazy init finished.
+            this.syncProjection();
             // Re-apply any persisted Render-panel AO/bloom prefs now that the passes exist
             // (the panel may have run applyAll() before the composer finished loading).
             try { window._robcoRenderPanel?.applyPostFX?.(); } catch { /* ignore */ }
@@ -128,6 +132,21 @@ export class PostFXManager {
         this.passes.gtao?.setSize?.(w, h);
         this.passes.bloom?.setSize?.(w, h);
         this.passes.smaa?.setSize?.(w, h);
+    }
+
+    /**
+     * Keep GTAO's depth-reconstruction shader define in sync with the (faked) projection mode.
+     * The camera object is always a PerspectiveCamera, so the define baked at pass construction
+     * is wrong whenever SceneManager's orthographic mode is active.
+     */
+    syncProjection(mode = this.sm.projectionMode) {
+        const mat = this.passes.gtao?.gtaoMaterial;
+        if (!mat) return;
+        const v = mode === 'orthographic' ? 0 : 1;
+        if (mat.defines.PERSPECTIVE_CAMERA !== v) {
+            mat.defines.PERSPECTIVE_CAMERA = v;
+            mat.needsUpdate = true;
+        }
     }
 
     /** Toggle / tune ambient occlusion. intensity (0..2) maps to the GTAO `scale`. */

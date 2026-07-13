@@ -630,6 +630,7 @@ export class SceneManager {
         this.projectionMode = next;
         // Leaving ortho: restore the genuine perspective projection matrix immediately.
         if (next === 'perspective') this.camera.updateProjectionMatrix();
+        this.postFX?.syncProjection?.(next);
         this.emit('projectionChanged', next);
         this.redraw();
     }

@@ -272,7 +272,13 @@ export class ViewCube {
         const fromPos = cam.position.clone();
         const fromTarget = controls.target.clone();
         const start = performance.now();
-        if (this._tween) cancelAnimationFrame(this._tween);
+        this._cancelTween();
+        // A grab on the main canvas mid-tween must win — otherwise OrbitControls and the tween
+        // both write the camera every frame and fight for the tween's remaining duration.
+        const dom = this.sm.renderer?.domElement;
+        const onGrab = () => this._cancelTween();
+        dom?.addEventListener('pointerdown', onGrab);
+        this._unbindTweenCancel = () => { dom?.removeEventListener('pointerdown', onGrab); this._unbindTweenCancel = null; };
         const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2); // easeInOutQuad
         const step = () => {
             const k = Math.min(1, (performance.now() - start) / TWEEN_MS);
@@ -282,8 +288,14 @@ export class ViewCube {
             controls.update();
             this.sm.redraw?.();
             this._tween = k < 1 ? requestAnimationFrame(step) : null;
+            if (!this._tween) this._unbindTweenCancel?.();
         };
         step();
+    }
+
+    _cancelTween() {
+        if (this._tween) { cancelAnimationFrame(this._tween); this._tween = null; }
+        this._unbindTweenCancel?.();
     }
 
     // --- auto-position: bottom-right of the 3D viewport, clear of the dock ---
@@ -321,7 +333,7 @@ export class ViewCube {
     }
 
     dispose() {
-        if (this._tween) cancelAnimationFrame(this._tween);
+        this._cancelTween();
         if (this._ro) { this._ro.disconnect(); this._ro = null; }
         if (this._onResize) { window.removeEventListener('resize', this._onResize); this._onResize = null; }
         if (this._unhook) { this._unhook(); this._unhook = null; }

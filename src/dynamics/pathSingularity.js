@@ -38,15 +38,17 @@ function rotVecBetween(A, B) {
     return [(R[7] - R[5]) * k, (R[2] - R[6]) * k, (R[3] - R[1]) * k];
 }
 
-/** Row-major 3×3 rotation matrix → quaternion [w,x,y,z]. */
+/** Row-major 3×3 rotation matrix → quaternion [w,x,y,z]. sqrt args are clamped ≥0 against
+ *  floating-point round-off on borderline matrices (a NaN here would poison slerp → IK targets). */
 function matToQuat(m) {
     const [m00, m01, m02, m10, m11, m12, m20, m21, m22] = m;
     const tr = m00 + m11 + m22;
+    const rt = (v) => Math.sqrt(Math.max(0, v));
     let w, x, y, z;
-    if (tr > 0) { const s = Math.sqrt(tr + 1) * 2; w = 0.25 * s; x = (m21 - m12) / s; y = (m02 - m20) / s; z = (m10 - m01) / s; }
-    else if (m00 > m11 && m00 > m22) { const s = Math.sqrt(1 + m00 - m11 - m22) * 2; w = (m21 - m12) / s; x = 0.25 * s; y = (m01 + m10) / s; z = (m02 + m20) / s; }
-    else if (m11 > m22) { const s = Math.sqrt(1 + m11 - m00 - m22) * 2; w = (m02 - m20) / s; x = (m01 + m10) / s; y = 0.25 * s; z = (m12 + m21) / s; }
-    else { const s = Math.sqrt(1 + m22 - m00 - m11) * 2; w = (m10 - m01) / s; x = (m02 + m20) / s; y = (m12 + m21) / s; z = 0.25 * s; }
+    if (tr > 0) { const s = rt(tr + 1) * 2 || 1e-12; w = 0.25 * s; x = (m21 - m12) / s; y = (m02 - m20) / s; z = (m10 - m01) / s; }
+    else if (m00 > m11 && m00 > m22) { const s = rt(1 + m00 - m11 - m22) * 2 || 1e-12; w = (m21 - m12) / s; x = 0.25 * s; y = (m01 + m10) / s; z = (m02 + m20) / s; }
+    else if (m11 > m22) { const s = rt(1 + m11 - m00 - m22) * 2 || 1e-12; w = (m02 - m20) / s; x = (m01 + m10) / s; y = 0.25 * s; z = (m12 + m21) / s; }
+    else { const s = rt(1 + m22 - m00 - m11) * 2 || 1e-12; w = (m10 - m01) / s; x = (m02 + m20) / s; y = (m12 + m21) / s; z = 0.25 * s; }
     return [w, x, y, z];
 }
 

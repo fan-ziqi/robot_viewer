@@ -167,7 +167,9 @@ export class SingularityPanel {
         this._gated.push(this._samples);
 
         const rescan = el('button', BTN + 'margin:6px 0 2px;', 'Rescan now');
-        rescan.addEventListener('click', () => this.manager?.refresh());
+        // scheduleRefresh so the click returns (and the button repaints) before a potentially
+        // long synchronous scan starts.
+        rescan.addEventListener('click', () => this.manager?.scheduleRefresh());
         body.append(rescan);
         this._gated.push(rescan);
 
