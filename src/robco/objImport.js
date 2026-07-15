@@ -464,6 +464,51 @@ export async function importObjStream(file, creator, onProgress) {
     return { group, partNames, maxDim: Math.max(size.x, size.y, size.z) };
 }
 
+/**
+ * Promote non-PBR import materials to MeshStandardMaterial so imports react to the scene's
+ * IBL environment (scene.environment) and the Render panel's "env IBL" slider exactly like the
+ * GLB robot modules do. The OBJ path (default material + MTLLoader output) produces
+ * MeshPhongMaterial, which IGNORES scene.environment and has no envMapIntensity — a Phong
+ * gripper/cell sits visually dead next to the env-lit robot. Roughness derives from the Phong
+ * shininess so the authored MTL look survives; unlit (Basic) materials are left alone.
+ * PBR materials only get their envMapIntensity aligned with the panel's current setting.
+ */
+export function promoteToPBR(root) {
+    const envIntensity = window._robcoRenderPanel?.s?.envIntensity ?? 1.0;
+    const cache = new Map(); // old material -> converted (materials are shared across meshes)
+    const convert = (m) => {
+        if (!m) return m;
+        if ('envMapIntensity' in m) { m.envMapIntensity = envIntensity; return m; }
+        if (!m.isMeshPhongMaterial && !m.isMeshLambertMaterial) return m; // keep unlit/special
+        let std = cache.get(m);
+        if (!std) {
+            std = new THREE.MeshStandardMaterial({
+                name: m.name,
+                color: m.color?.clone() ?? new THREE.Color(0xb8bec6),
+                map: m.map || null,
+                normalMap: m.normalMap || null,
+                bumpMap: m.bumpMap || null,
+                bumpScale: m.bumpScale ?? 1,
+                alphaMap: m.alphaMap || null,
+                emissiveMap: m.emissiveMap || null,
+                transparent: m.transparent,
+                opacity: m.opacity,
+                side: m.side,
+                metalness: 0,
+                roughness: Math.min(1, Math.max(0.1, 1 - Math.sqrt((m.shininess ?? 30) / 100))),
+                envMapIntensity: envIntensity,
+            });
+            if (m.emissive) std.emissive.copy(m.emissive);
+            cache.set(m, std);
+        }
+        return std;
+    };
+    root.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = Array.isArray(o.material) ? o.material.map(convert) : convert(o.material);
+    });
+}
+
 /** Completely black surfaces render as holes under most lighting: lift pure-black diffuse to
  *  rgb(20,20,20) — but ONLY when the material has no color texture linked; textured materials
  *  are left exactly as authored. */
@@ -555,6 +600,7 @@ export async function loadAnyModel(files, { onProgress, onAssetsLoaded, preferMa
         }
     }
     liftBlackMaterials(content);
+    promoteToPBR(content); // imports must react to env IBL like the GLB robot modules
     return { content, main, isObj, partNames, maxDim, sources, sourceNames, missingTextures };
 }
 
