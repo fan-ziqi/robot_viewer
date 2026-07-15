@@ -406,6 +406,22 @@ export class WaypointStore {
         this.sm.redraw?.();
     }
 
+    /**
+     * Show ONLY the given move steps' markers, hiding all others (the takt diagram's element
+     * selection). null = end isolation, every marker visible again. Isolating force-shows the
+     * marker group — the point is to SEE the selected element's waypoints.
+     */
+    isolate(ids) {
+        if (ids && !this._isolatedIds) this.group.visible = true; // force-show only on transition
+        this._isolatedIds = ids ? new Set(ids) : null;
+        for (const it of this.items) this._applyIsolation(it);
+        this.sm.redraw?.();
+    }
+
+    _applyIsolation(it) {
+        if (it._marker) it._marker.visible = !this._isolatedIds || this._isolatedIds.has(it.id);
+    }
+
     // --- markers -------------------------------------------------------
     _makeMarker(item) {
         const g = new THREE.Group();
@@ -429,6 +445,7 @@ export class WaypointStore {
         item._marker = g;
         this._placeMarker(item);
         this._styleMarker(item, item.id === this._selectedId);
+        this._applyIsolation(item); // a marker (re)built during isolation must respect it
         return g;
     }
 

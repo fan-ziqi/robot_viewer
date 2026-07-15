@@ -33,6 +33,9 @@ export class NodeTimer {
         return nodeId != null ? this.lastMs.get(nodeId) ?? null : null;
     }
 
+    /** The node currently executing (open span), or null — the takt diagram's live playhead. */
+    currentNodeId() { return this._openId; }
+
     /** How many nodes have timing data. */
     get size() { return this.lastMs.size; }
 
