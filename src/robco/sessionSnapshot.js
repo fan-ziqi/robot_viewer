@@ -44,6 +44,8 @@ const LS_KEYS = [
     'robco-camera',
     'robco-blender',
     'robco-dock-layout-v1',
+    'robco-takt-rows-v1',
+    'robco-takt-labelw',
 ];
 
 // ---------------------------------------------------------------------------
@@ -294,31 +296,26 @@ export async function restoreSession(app, session) {
     //    _loadPersisted() already consumed the matching config (name/transform/mass/...) from the
     //    localStorage seeded in step 1, so addFromFile() re-applies it as each asset loads, in the
     //    same order it was saved.
+    //    Disk-referenced assets (over-cap folder imports) often CAN'T load here: re-reading their
+    //    folder needs File System Access permission, and requestPermission is denied without a
+    //    user gesture — restore runs at page boot. Those are collected and offered as a
+    //    one-click "re-connect folders" retry instead of being dropped silently.
     const A = session.assets || {};
-    if (window._robcoEndEffector) {
-        for (const a of A.endEffectors || []) {
+    const pending = []; // {a, mgr, what} — disk-referenced assets whose folder wasn't readable
+    const restoreAssets = async (list, mgr, what) => {
+        if (!mgr) return;
+        for (const a of list || []) {
             try {
                 const files = await filesFromAsset(a);
-                if (files.length) await window._robcoEndEffector.addFromFiles(files, { preferMain: a.name });
-            } catch (e) { console.warn('[RobCo] end-effector restore failed:', e); }
+                if (files.length) await mgr.addFromFiles(files, { preferMain: a.name });
+                else if (a?.disk?.length) pending.push({ a, mgr, what });
+            } catch (e) { console.warn(`[RobCo] ${what} restore failed:`, e); }
         }
-    }
-    if (window._robcoMaterialManager) {
-        for (const a of A.materials || []) {
-            try {
-                const files = await filesFromAsset(a);
-                if (files.length) await window._robcoMaterialManager.addFromFiles(files, { preferMain: a.name });
-            } catch (e) { console.warn('[RobCo] material restore failed:', e); }
-        }
-    }
-    if (window._robcoSetupPanel?.sceneObjects) {
-        for (const a of A.sceneObjects || []) {
-            try {
-                const files = await filesFromAsset(a);
-                if (files.length) await window._robcoSetupPanel.sceneObjects.addFromFiles(files, { preferMain: a.name });
-            } catch (e) { console.warn('[RobCo] scene object restore failed:', e); }
-        }
-    }
+    };
+    await restoreAssets(A.endEffectors, window._robcoEndEffector, 'end-effector');
+    await restoreAssets(A.materials, window._robcoMaterialManager, 'material');
+    await restoreAssets(A.sceneObjects, window._robcoSetupPanel?.sceneObjects, 'scene object');
+    if (pending.length) offerFolderRelink(pending);
     if (session.env?.source === 'custom' && A.envMap && window._robcoRenderPanel) {
         try { await window._robcoRenderPanel._loadEnvFile(b64ToFile(A.envMap)); }
         catch (e) { console.warn('[RobCo] environment restore failed:', e); }
@@ -333,6 +330,64 @@ export async function restoreSession(app, session) {
 
     sm.redraw?.();
     sm.render?.();
+}
+
+/**
+ * Some imports weren't embedded in the session (over the embed cap) and their remembered folders
+ * couldn't be re-read at boot — File System Access permission prompts are blocked without a user
+ * gesture. Show a toast whose button retries INSIDE a click, where requestPermission is allowed.
+ */
+function offerFolderRelink(pending) {
+    let items = pending;
+    const bar = document.createElement('div');
+    bar.style.cssText = 'position:fixed;top:44px;left:50%;transform:translateX(-50%);z-index:6000;max-width:560px;' +
+        'font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#e6edf3;background:rgba(13,17,23,0.96);' +
+        'border:1px solid rgba(210,153,34,0.7);border-radius:8px;padding:8px 12px;' +
+        'box-shadow:0 8px 24px rgba(0,0,0,0.5);display:flex;align-items:center;gap:10px;';
+    const txt = document.createElement('span');
+    txt.style.cssText = 'flex:1;min-width:0;';
+    const btnCss = 'font:600 11px ui-monospace,monospace;color:#e6edf3;background:rgba(255,255,255,0.06);' +
+        'border:1px solid rgba(255,255,255,0.2);border-radius:6px;padding:4px 9px;cursor:pointer;flex:0 0 auto;';
+    const btn = document.createElement('button');
+    btn.style.cssText = btnCss;
+    btn.textContent = 'Re-connect folders';
+    const close = document.createElement('button');
+    close.style.cssText = btnCss + 'padding:4px 7px;';
+    close.textContent = '✕';
+    close.title = 'dismiss — the objects can also be re-imported manually (📁)';
+    close.addEventListener('click', () => bar.remove());
+    const describe = () => {
+        const names = [...new Set(items.map((p) => p.a.name))];
+        txt.textContent = `${names.length} import(s) were too large to embed and need folder access to reload: ${names.join(', ')}`;
+    };
+    describe();
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = 'reading…';
+        try {
+            const { hydrateCacheFromStoredDirs } = await import('./objImport.js');
+            await hydrateCacheFromStoredDirs(); // inside the click, permission prompts may show
+            const left = [];
+            for (const p of items) {
+                try {
+                    const files = await filesFromAsset(p.a);
+                    if (files.length) await p.mgr.addFromFiles(files, { preferMain: p.a.name });
+                    else left.push(p);
+                } catch (e) {
+                    console.warn(`[RobCo] ${p.what} re-link failed:`, e);
+                    left.push(p);
+                }
+            }
+            items = left;
+        } catch (e) { console.warn('[RobCo] folder re-link failed:', e); }
+        if (!items.length) { bar.remove(); return; }
+        describe();
+        txt.textContent += ' — folder not remembered or moved; re-import via 📁';
+        btn.textContent = 'Retry';
+        btn.disabled = false;
+    });
+    bar.append(txt, btn, close);
+    document.body.appendChild(bar);
 }
 
 // ---------------------------------------------------------------------------

@@ -126,6 +126,8 @@ export class ViewPanel {
         body.append(this._check('Visual meshes', (on) => this.sm.visualizationManager?.toggleVisual(on, this._model()), true, 'visual'));
         body.append(this._check('Collision meshes', (on) => this._setCollision(on), false, 'collision'));
         body.append(this._check('Waypoints', (on) => window._robcoWaypointStore?.setVisible(on), true, 'waypoints'));
+        body.append(this._check('MTBH highlight', (on) => window._robcoMaterialManager?.setHighlight(on),
+            window._robcoMaterialManager?.getHighlight?.() ?? true, 'mtbhTint'));
 
         // Scene
         body.append(title('Scene'));

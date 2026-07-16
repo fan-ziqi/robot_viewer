@@ -414,6 +414,19 @@ export class CameraView {
             if (r === act && this.inRenderer) r.renderInto(this.inRenderer, VW, VH, scene);
         }
 
+        // Master stream: the takt diagram's camera row switches which rig feeds this window.
+        // Renders regardless of the rig's "enabled" flag — a switch must always show a picture.
+        if (this.master) {
+            if (this.master.win.closed) this._onMasterClosed();
+            else {
+                const rig = this.rigs.find((r) => r.cfg.id === this.master.rigId) || act;
+                if (rig) {
+                    rig.cam.updateMatrixWorld(true);
+                    rig.renderInto(this.master.renderer, this.master.w, this.master.h, scene);
+                }
+            }
+        }
+
         // Restore frustum visibility + refresh with a stable aspect (the pop-out's, else in-panel).
         for (const r of this.rigs) {
             if (!r.helper) continue;
@@ -563,6 +576,121 @@ export class CameraView {
         this._refreshViewport();
         this._save();
         this.sm.redraw?.();
+    }
+
+    // --- master stream (driven by the takt diagram's camera row) --------------
+    hasMaster() { return !!(this.master && this.master.win && !this.master.win.closed); }
+
+    /** The rig currently feeding the master stream, or null when the window is closed. */
+    masterCameraId() { return this.hasMaster() ? this.master.rigId : null; }
+
+    /** Open (or focus) the MASTER STREAM window: one persistent feed that camera switches cut. */
+    openMaster() {
+        if (this.hasMaster()) { this.master.win.focus(); return true; }
+        const win = window.open('', 'robco-cam-master', 'width=960,height=600');
+        if (!win) {
+            alert('The master stream window was blocked. Please allow pop-ups for this site and try again.');
+            return false;
+        }
+        const doc = win.document;
+        doc.title = 'Master Stream · RobCo Camera';
+        doc.documentElement.style.cssText = 'height:100%;';
+        doc.body.style.cssText = 'margin:0;height:100%;background:#000;overflow:hidden;';
+        doc.body.innerHTML = '';
+        const canvas = doc.createElement('canvas');
+        canvas.style.cssText = 'display:block;width:100%;height:100%;';
+        doc.body.appendChild(canvas);
+        const cap = doc.createElement('div');
+        cap.style.cssText = 'position:fixed;left:10px;top:8px;font:600 12px ui-monospace,Menlo,Consolas,monospace;' +
+            'color:#e6edf3;background:rgba(200,40,40,0.65);padding:3px 8px;border-radius:6px;pointer-events:none;';
+        doc.body.appendChild(cap);
+
+        let renderer;
+        try {
+            renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        } catch (e) {
+            console.warn('[RobCo] master stream renderer failed:', e);
+            win.close();
+            return false;
+        }
+        renderer.setPixelRatio(Math.min(win.devicePixelRatio || 1, 2));
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
+
+        this.master = { win, renderer, canvas, cap, w: 1, h: 1, rigId: this.activeId };
+        const resize = () => {
+            const w = Math.max(1, win.innerWidth), h = Math.max(1, win.innerHeight);
+            this.master.w = w; this.master.h = h;
+            renderer.setSize(w, h, false);
+            this.sm?.redraw?.();
+        };
+        win.addEventListener('resize', resize);
+        win.addEventListener('beforeunload', () => this._onMasterClosed());
+        resize();
+        this.setMasterCamera(this.master.rigId);
+        this.sm?.redraw?.();
+        return true;
+    }
+
+    /** Cut the master stream to another camera. Returns true when the rig exists. */
+    setMasterCamera(rigId) {
+        const rig = this.rigs.find((r) => r.cfg.id === rigId);
+        if (!rig || !this.master) return false;
+        this.master.rigId = rigId;
+        if (this.master.cap) this.master.cap.textContent = `● MASTER · ${rig.cfg.name}`;
+        this.sm?.redraw?.();
+        return true;
+    }
+
+    _onMasterClosed() {
+        if (!this.master) return;
+        this._disposeDofFor(this.master.renderer);
+        try { this.master.renderer.dispose(); } catch { /* ignore */ }
+        this.master = null;
+    }
+
+    closeMaster() {
+        if (!this.master) return;
+        const win = this.master.win;
+        this._onMasterClosed();
+        try { if (win && !win.closed) win.close(); } catch { /* ignore */ }
+    }
+
+    /** Render a rig into a small offscreen canvas → JPEG data URL (null on failure). Used by the
+     *  takt diagram's camera-row thumbnails. Works for disabled rigs too. */
+    captureThumb(camId, w = 128, h = 72) {
+        const rig = this.rigs.find((r) => r.cfg.id === camId);
+        if (!rig || !this.sm?.scene) return null;
+        if (!this._thumbRenderer) {
+            try {
+                const canvas = document.createElement('canvas');
+                this._thumbRenderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
+                this._thumbRenderer.outputColorSpace = THREE.SRGBColorSpace;
+                this._thumbRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+                this._thumbRenderer.toneMappingExposure = 1.0;
+            } catch (e) {
+                console.warn('[RobCo] thumbnail renderer failed:', e);
+                return null;
+            }
+        }
+        const r = this._thumbRenderer;
+        const size = r.getSize(new THREE.Vector2());
+        if (size.x !== w || size.y !== h) r.setSize(w, h, false);
+        this.sm.scene.updateMatrixWorld(true);
+        rig.cam.updateMatrixWorld(true);
+        // frustum helpers are aiming aids for the main view — keep them out of thumbnails
+        const helpers = this.rigs.filter((x) => x.helper?.visible);
+        for (const x of helpers) x.helper.visible = false;
+        try {
+            rig.renderInto(r, w, h, this.sm.scene);
+            return r.domElement.toDataURL('image/jpeg', 0.65);
+        } catch (e) {
+            console.warn('[RobCo] thumbnail capture failed:', e);
+            return null;
+        } finally {
+            for (const x of helpers) x.helper.visible = true;
+        }
     }
 
     // --- UI -------------------------------------------------------------
@@ -904,10 +1032,13 @@ export class CameraView {
 
     dispose() {
         if (this._unhook) { this._unhook(); this._unhook = null; }
+        this.closeMaster();
         for (const r of this.rigs) r.dispose();
         this.rigs = [];
         for (const e of this._dofComposers.values()) { try { e.composer.dispose(); } catch { /* ignore */ } }
         this._dofComposers.clear();
+        this._thumbRenderer?.dispose?.();
+        this._thumbRenderer = null;
         this.inRenderer?.dispose?.();
         this.inRenderer = null;
         this.root?.remove();

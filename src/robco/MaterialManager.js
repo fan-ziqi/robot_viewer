@@ -159,6 +159,8 @@ export class MaterialManager {
         this._gripActive = false; // last commanded gripper-output state (feeds the EE indicator offline)
         this._animRaf = null;     // shared rAF loop, running only while an animation is playing
         this._loadPersisted();
+        // the View panel's "MTBH highlight" checkbox defaults to on — align it with our persisted state
+        if (this._tintOn === false) window._robcoViewPanel?.applyState?.({ mtbhTint: false });
         if (setupPanel) setupPanel.addSection(this._buildSection(), { title: 'Material (MTBH)', key: 'material' });
         // Scene objects imported before this manager existed: bind their persisted elements now.
         for (const sit of setupPanel?.sceneObjects?.items || []) this.bindPendingParts(sit);
@@ -291,7 +293,7 @@ export class MaterialManager {
     _makePartItem(cfg, sceneItem) {
         const nodes = sceneItem.nodesByName.get(cfg.partName);
         const entry = makeEntry(cfg.partName, nodes);
-        tintNodes(nodes, true);
+        tintNodes(nodes, this.getHighlight());
         return { cfg, sourceItem: sceneItem, fileName: cfg.sourceFile, entries: new Map([[cfg.partName, entry]]) };
     }
 
@@ -361,7 +363,7 @@ export class MaterialManager {
         }
         if (!nodes.length) return null;
         const entry = makeEntry(cfg.name, nodes);
-        tintNodes(nodes, true);
+        tintNodes(nodes, this.getHighlight());
         return { cfg, entries: new Map([['', entry]]) };
     }
 
@@ -969,6 +971,7 @@ export class MaterialManager {
             const s = JSON.parse(localStorage.getItem(KEY));
             this._persistedCfgs = (s && Array.isArray(s.items)) ? s.items : [];
             if (typeof s?.showGrip === 'boolean') this._showGrip = s.showGrip;
+            if (typeof s?.tint === 'boolean') this._tintOn = s.tint;
         } catch { this._persistedCfgs = []; }
     }
 
@@ -983,8 +986,24 @@ export class MaterialManager {
                     ...pending,
                 ],
                 showGrip: this._showGrip,
+                tint: this._tintOn !== false,
             }));
         } catch { /* ignore */ }
+    }
+
+    // --- MTBH highlight (blue emissive tint on confirmed parts/groups) --------
+    /** Whether MTBH elements are marked blue in the viewport (View panel toggle). */
+    getHighlight() { return this._tintOn !== false; }
+
+    /** Turn the blue MTBH marking on/off for every part/group element (persisted). */
+    setHighlight(on) {
+        this._tintOn = !!on;
+        for (const it of this.items) {
+            if (it.cfg.kind !== 'part' && it.cfg.kind !== 'group') continue;
+            for (const e of it.entries.values()) tintNodes(e.nodes, this._tintOn);
+        }
+        this._persist();
+        this.sm.redraw?.();
     }
 
     // --- UI section ----------------------------------------------------
@@ -1023,6 +1042,24 @@ export class MaterialManager {
         });
 
         const body = el('div', 'display:none;');
+
+        // rename the active element (list label, grip log, takt-diagram links all follow)
+        const nameRow = el('div', 'display:flex;align-items:center;gap:6px;margin:3px 0;');
+        nameRow.append(el('span', 'width:64px;opacity:.8;', 'name'));
+        this._nameIn = el('input', 'flex:1;min-width:0;background:rgba(255,255,255,0.08);' +
+            'border:1px solid rgba(255,255,255,0.15);border-radius:4px;color:#e6edf3;padding:2px 6px;font:inherit;');
+        this._nameIn.type = 'text';
+        this._nameIn.addEventListener('change', () => {
+            const it = this.active;
+            if (!it) return;
+            const v = this._nameIn.value.trim();
+            if (!v) { this._nameIn.value = it.cfg.name; return; }
+            it.cfg.name = v;
+            this._persist();
+            this._rebuildListUI();
+        });
+        nameRow.append(this._nameIn);
+        body.append(nameRow);
 
         this._srcNote = el('div', 'font-size:10px;color:#6e7681;margin:2px 0;', '');
         body.append(this._srcNote);
@@ -1346,6 +1383,7 @@ export class MaterialManager {
         }
         if (!it) { if (this._body) this._body.style.display = 'none'; return; }
         this._body.style.display = 'block';
+        if (this._nameIn) this._nameIn.value = it.cfg.name;
         const kind = it.cfg.kind;
         this._fileRows.style.display = kind === 'file' ? 'block' : 'none';
         const note = kind === 'part' ? `part of ${it.cfg.sourceFile}`

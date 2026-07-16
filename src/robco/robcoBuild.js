@@ -68,6 +68,8 @@ export async function buildStaticRobco(app, { baseUrl, moduleIds, anglesDeg = nu
             const { WaypointsPanel } = await import('./WaypointsPanel.js');
             const store = WaypointStore.ensure(app.sceneManager, window._robcoBaseFrame);
             WaypointsPanel.ensure({ app, teach, base: window._robcoBaseFrame, store, client: null });
+            const { TaktTimePanel } = await import('./TaktTimePanel.js');
+            TaktTimePanel.ensure({ store, nodeTimer: app._robcoNodeTimer || null });
             const { PathSingularityManager } = await import('./PathSingularityManager.js');
             const pathSing = PathSingularityManager.ensure({ sm: app.sceneManager, base: window._robcoBaseFrame, store, teach });
             const { SingularityPanel } = await import('./SingularityPanel.js');

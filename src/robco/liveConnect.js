@@ -9,6 +9,7 @@ import { RobFlowSocket } from '../transport/RobFlowSocket.js';
 import { RobFlowClient } from '../transport/RobFlowClient.js';
 import { FrequencyMeter } from '../transport/FrequencyMeter.js';
 import { CycleTimer } from '../transport/CycleTimer.js';
+import { NodeTimer } from '../transport/NodeTimer.js';
 import { CYCLE_MARKER } from '../transport/flowBuilder.js';
 import { StreamRatePanel } from './StreamRatePanel.js';
 import { RobCoModuleAdapter } from '../adapters/RobCoModuleAdapter.js';
@@ -86,6 +87,12 @@ export async function connectLiveSession(app, opts) {
     const cycleTimer = new CycleTimer({ marker: CYCLE_MARKER });
     socket.on('messages', (data) => cycleTimer.ingest(data, performance.now()));
     app._robcoCycleTimer = cycleTimer;
+
+    // Per-node execution timer: the backend broadcasts nodeState as the flow highlights the
+    // running node; the Waypoints panel shows the last duration per row / folder total.
+    const nodeTimer = new NodeTimer();
+    socket.on('nodeState', (data) => nodeTimer.ingest(data, performance.now()));
+    app._robcoNodeTimer = nodeTimer;
 
     let model = null;
     let building = false;
@@ -186,7 +193,9 @@ export async function connectLiveSession(app, opts) {
                 const { WaypointStore } = await import('./waypointStore.js');
                 const { WaypointsPanel } = await import('./WaypointsPanel.js');
                 const store = WaypointStore.ensure(app.sceneManager, window._robcoBaseFrame);
-                WaypointsPanel.ensure({ app, teach, base: window._robcoBaseFrame, store, client, cycleTimer });
+                WaypointsPanel.ensure({ app, teach, base: window._robcoBaseFrame, store, client, cycleTimer, nodeTimer });
+                const { TaktTimePanel } = await import('./TaktTimePanel.js');
+                TaktTimePanel.ensure({ store, nodeTimer });
                 const { PathSingularityManager } = await import('./PathSingularityManager.js');
                 const pathSing = PathSingularityManager.ensure({ sm: app.sceneManager, base: window._robcoBaseFrame, store, teach });
                 pathSingularity = pathSing;
