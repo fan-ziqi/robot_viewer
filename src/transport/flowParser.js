@@ -241,6 +241,9 @@ export function parseFlow(flow) {
                         };
                     } else {
                         step.joints = (pose?.jointAngles || []).map(Number);
+                        // approachMode is part of the JointMovement schema (1=PTP, 2=Linear) —
+                        // must survive the round trip or a Linear segment silently becomes PTP.
+                        step.approachMode = exprNum(m.approachMode, 1) === 2 ? 2 : 1;
                     }
                     if (group) step.group = group;
                     steps.push(step);

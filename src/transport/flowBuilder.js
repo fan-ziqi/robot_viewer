@@ -90,7 +90,7 @@ function movementInline(mode, m) {
         const c = m.cartesian || {};
         mv.pose = { position: round2arr(c.position || [0, 0, 0]), orientation: round2arr(c.orientation || [0, 0, 0]), poseVariableId: null };
     } else {
-        mv.approachMode = 1; // PTP
+        mv.approachMode = m.approachMode === 2 ? 2 : 1; // PTP unless the loaded flow said Linear
         mv.pose = { jointAngles: round2arr(m.joints || []), poseVariableId: null };
     }
     return mv;

@@ -1057,6 +1057,7 @@ export class WaypointsPanel {
                 continue;
             }
             const common = { name: it.name, velocity: it.velocity, acceleration: it.acceleration, blendingRadius: it.blendingRadius };
+            if (it.mode === 'joint') common.approachMode = it.approachMode === 2 ? 2 : 1;
             if (it.mode === 'cartesian') {
                 // Loaded cartesian → use its pose verbatim (base-relative truth). Captured → exact
                 // RobFlow capture if available, else derive from the world pose at the current base.
