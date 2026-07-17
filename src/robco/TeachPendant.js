@@ -391,10 +391,13 @@ export class TeachPendant {
 
     setEnabled(on) {
         this.enabled = on;
+        // Close competing manipulators BEFORE writing _teachActive: their turnOff callbacks
+        // (e.g. the waypoint gizmo's _stopWpEdit) restore _teachActive from a pre-edit snapshot
+        // and would clobber the value set here, leaving teach on but the live mirror running.
+        if (on) activateManipulator('teach'); // turn off the Setup gizmo / FK drag / waypoint gizmo
         this.app._teachActive = on;
         this.gizmo.setEnabled(on);
         if (on) {
-            activateManipulator('teach'); // turn off the Setup gizmo / FK drag
             this._setTargetToTcp();
             window.addEventListener('keydown', this._onKey);
         } else {
