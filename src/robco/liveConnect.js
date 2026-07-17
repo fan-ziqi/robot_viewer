@@ -38,6 +38,10 @@ export async function connectLiveSession(app, opts) {
         try { app._robflowSocket.close(); } catch { /* ignore */ }
         app._robflowSocket = null;
     }
+    // Connection generation: closing the old socket doesn't cancel its in-flight REST calls, and
+    // the singletons they write to (window._robcoEndEffector / _robcoMaterialManager) are shared
+    // across connects. Late callbacks from a superseded connect must check this and bail.
+    const connGen = app._robcoConnGen = (app._robcoConnGen || 0) + 1;
     const session = resolveSession(opts);
     console.log(`[RobCo] live ${session.mode} connect: ${redactSid(session.wsUrl)}`);
 
@@ -352,6 +356,7 @@ export async function connectLiveSession(app, opts) {
     // `robotConfig` push is authoritative, so don't let this late REST result clobber it.
     client.getRobotConfig()
         .then((cfg) => {
+            if (connGen !== app._robcoConnGen) return; // superseded by a newer connect — this cfg is stale
             if (!rfToolsFromWs) { rfTools = cfg?.tools || []; rfResolveActiveTool(); rfApply(); }
             // Named outputs too — a robotConfig WS push may never come in a quiet session, and
             // without the names the default "Gripper" output can't resolve. WS stays authoritative.
