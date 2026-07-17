@@ -28,6 +28,9 @@ const uuid = () =>
           }));
 
 const clamp01 = (v) => Math.max(0, Math.min(1, Number.isFinite(+v) ? +v : 0));
+
+/** Fresh flow uuid (for recreating a flow without colliding with the copy still on the controller). */
+export const newFlowUuid = uuid;
 const num = (v, d = 0) => (Number.isFinite(+v) ? +v : d);
 const clone = (o) => JSON.parse(JSON.stringify(o));
 // RobFlow's movement-node editor accepts at most 2 decimal places per numeric field. Round

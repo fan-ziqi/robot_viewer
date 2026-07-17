@@ -19,7 +19,7 @@
  */
 import * as THREE from 'three';
 import { makeDraggable, makeCollapsible } from './draggable.js';
-import { buildSequenceFlow, flowGraphPatch } from '../transport/flowBuilder.js';
+import { buildSequenceFlow, flowGraphPatch, newFlowUuid } from '../transport/flowBuilder.js';
 import { parseFlow } from '../transport/flowParser.js';
 import { DEFAULT_BLEND_MM } from './waypointStore.js';
 import { TcpGizmo } from './TcpGizmo.js';
@@ -1186,10 +1186,18 @@ export class WaypointsPanel {
         try {
             const back = await this.client.getExportableFlow(uuid);
             if ((back?.groups || []).length) return ''; // PATCH persisted them — nothing to do
-            await this.client.deleteFlow(uuid);
-            const created = await this.client.importFlow(flow);
-            const newUuid = created?.uuid || flow.uuid;
-            if (newUuid !== uuid) this._currentFlowUuid = newUuid;
+            // Import the replacement FIRST (fresh uuid — the old flow still exists), and only
+            // delete the old copy once the new one is confirmed on the controller. A failed
+            // import must never leave the user with no flow at all.
+            const replacement = { ...flow, uuid: newFlowUuid() };
+            const created = await this.client.importFlow(replacement);
+            this._currentFlowUuid = created?.uuid || replacement.uuid;
+            try {
+                await this.client.deleteFlow(uuid);
+            } catch (e) {
+                console.warn('[RobCo] stale flow copy could not be deleted after recreate:', e);
+                return ' · doc groups reapplied (old flow copy remains — delete it in the editor)';
+            }
             return ' · doc groups reapplied (backend drops groups on update — flow recreated)';
         } catch (e) {
             // The patch itself succeeded — don't fail the push over the verification.
