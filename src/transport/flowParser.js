@@ -27,7 +27,7 @@
  * the push envelope's infinite loop. Movement poses are read inline, or resolved from the flow's
  * variables[] when a movement only carries pose.poseVariableId.
  */
-import { CYCLE_MARKER } from './flowBuilder.js';
+import { CYCLE_MARKER, normalizeApproachMode } from './flowBuilder.js';
 
 /** Node types the parser converts into editable steps; everything else is kept verbatim. */
 const STEP_TYPES = new Set(['jointMovement', 'cartesianMovement', 'delay', 'payload', 'setOutput', 'setTool']);
@@ -243,7 +243,7 @@ export function parseFlow(flow) {
                         step.joints = (pose?.jointAngles || []).map(Number);
                         // approachMode is part of the JointMovement schema (1=PTP, 2=Linear) —
                         // must survive the round trip or a Linear segment silently becomes PTP.
-                        step.approachMode = exprNum(m.approachMode, 1) === 2 ? 2 : 1;
+                        step.approachMode = normalizeApproachMode(exprNum(m.approachMode, 1));
                     }
                     if (group) step.group = group;
                     steps.push(step);

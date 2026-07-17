@@ -11,6 +11,10 @@ import { loadMeshFile, ensureMeshHasPhongMaterial, getLoaders } from '../utils/M
 // its default 'XYZ' composes the opposite way and mis-orients every compound rotation.
 const MJCF_EULER_ORDER = 'ZYX';
 
+// MuJoCo's compiler default is angle="degree": `euler` attributes are degrees unless
+// <compiler angle="radian"/> says otherwise. Set per-parse in parse(), read by parseOrigin.
+let mjcfAngleToRad = Math.PI / 180;
+
 export class MJCFAdapter {
     /**
      * Process include tags in MJCF XML
@@ -168,6 +172,10 @@ export class MJCFAdapter {
 
         const model = new UnifiedRobotModel();
         model.name = 'mujoco_model';
+
+        // Angle unit for euler attributes (MuJoCo defaults to degrees).
+        const compilerEl = doc.querySelector('compiler');
+        mjcfAngleToRad = (compilerEl?.getAttribute('angle') || 'degree') === 'radian' ? 1 : Math.PI / 180;
 
         // Parse default values and class definitions in default tags first
         // (needed for mesh scale inheritance)
@@ -993,15 +1001,26 @@ export class MJCFAdapter {
             // Convert to Euler angles
             origin.rpy = this.quaternionToEuler(qw, qx, qy, qz);
         } else {
-            // Check euler attribute
+            // Check euler attribute (unit per <compiler angle> — MuJoCo defaults to degrees)
             const euler = element.getAttribute('euler');
             if (euler) {
                 const rpy = euler.split(' ').map(parseFloat);
-                origin.rpy = [rpy[0] || 0, rpy[1] || 0, rpy[2] || 0];
+                origin.rpy = [(rpy[0] || 0) * mjcfAngleToRad, (rpy[1] || 0) * mjcfAngleToRad, (rpy[2] || 0) * mjcfAngleToRad];
             }
         }
 
         return origin;
+    }
+
+    /**
+     * Compose a geom origin rotation ('ZYX' convention, see MJCF_EULER_ORDER) with a fromto
+     * alignment rotation ('XYZ', as parseGeom computed it) into one quaternion. fromto normally
+     * overrides orientation entirely (origin.rpy is zero) — this degrades to the alignment alone.
+     */
+    static composeOriginFromto(originRpy, fromtoRpy) {
+        const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(...originRpy, MJCF_EULER_ORDER));
+        q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...fromtoRpy)));
+        return q;
     }
 
     /**
@@ -1599,13 +1618,8 @@ export class MJCFAdapter {
                     if (visual.geometry && visual.geometry.fromto) {
                         // Use fromto center position
                         mesh.position.set(...visual.geometry.fromto.center);
-                        // Compose origin ('ZYX' convention) with the fromto alignment ('XYZ',
-                        // as computed) as quaternions — adding Euler components composes neither.
-                        // fromto normally overrides orientation entirely (origin.rpy is zero).
-                        const fromtoRpy = visual.geometry.fromto.rpy;
-                        const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(...visual.origin.rpy, MJCF_EULER_ORDER));
-                        q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...fromtoRpy)));
-                        mesh.quaternion.copy(q);
+                        // Adding Euler components composes neither rotation — use the quaternion helper.
+                        mesh.quaternion.copy(this.composeOriginFromto(visual.origin.rpy, visual.geometry.fromto.rpy));
                     } else {
                         mesh.position.set(...visual.origin.xyz);
                         mesh.rotation.set(...visual.origin.rpy, MJCF_EULER_ORDER);
@@ -1727,12 +1741,7 @@ export class MJCFAdapter {
                     if (collision.geometry && collision.geometry.fromto) {
                         // Use fromto center position
                         mesh.position.set(...collision.geometry.fromto.center);
-                        // Compose origin ('ZYX') with the fromto alignment ('XYZ') as quaternions —
-                        // see the visual-geom branch above.
-                        const fromtoRpy = collision.geometry.fromto.rpy;
-                        const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(...collision.origin.rpy, MJCF_EULER_ORDER));
-                        q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...fromtoRpy)));
-                        mesh.quaternion.copy(q);
+                        mesh.quaternion.copy(this.composeOriginFromto(collision.origin.rpy, collision.geometry.fromto.rpy));
                     } else {
                         mesh.position.set(...collision.origin.xyz);
                         mesh.rotation.set(...collision.origin.rpy, MJCF_EULER_ORDER);
@@ -1826,9 +1835,15 @@ export class MJCFAdapter {
                         );
                         jointGroup.rotation.set(...bodyOrigin.rpy, MJCF_EULER_ORDER);
                     } else {
-                        // Inner joints of the chain: body.pos/rpy is already applied by the
-                        // outermost group — only the joint's own offset remains.
-                        jointGroup.position.set(...joint.origin.xyz);
+                        // Inner joints of the chain: the enclosing group already sits at the
+                        // previous joint's body-frame pos, so only the DELTA between the two
+                        // anchors remains (both joint.pos values are body-frame).
+                        const prev = joints[idx - 1].origin.xyz;
+                        jointGroup.position.set(
+                            joint.origin.xyz[0] - prev[0],
+                            joint.origin.xyz[1] - prev[1],
+                            joint.origin.xyz[2] - prev[2]
+                        );
                     }
 
                     mount.add(jointGroup);

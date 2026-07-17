@@ -575,9 +575,16 @@ export class MujocoSimulationManager {
                 }
             }
 
+            // Unhandled geom type: keep an INVISIBLE placeholder child so the per-body
+            // geomIndex used for material pairing (bodies[b].children.length) stays aligned —
+            // skipping the geom outright would shift every later geom in this body onto the
+            // wrong original material.
+            let placeholderGeom = false;
             if (!geometry) {
-                console.warn(`[MuJoCo] unhandled geom type ${type} (geom ${g}) — skipped`);
-                continue;
+                console.warn(`[MuJoCo] unhandled geom type ${type} (geom ${g}) — invisible placeholder`);
+                geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3));
+                placeholderGeom = true;
             }
 
             // Prefer using original model materials
@@ -908,6 +915,7 @@ export class MujocoSimulationManager {
                 mesh.userData.isCollisionGeom = true;
                 mesh.visible = showCollision;  // Set initial visibility based on UI button state
             }
+            if (placeholderGeom) mesh.visible = false;
 
             // Set position and rotation (geom offset relative to body)
             this.getPosition(model.geom_pos, g, mesh.position);

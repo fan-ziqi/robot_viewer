@@ -19,7 +19,7 @@
  */
 import * as THREE from 'three';
 import { makeDraggable, makeCollapsible } from './draggable.js';
-import { buildSequenceFlow, flowGraphPatch, newFlowUuid } from '../transport/flowBuilder.js';
+import { buildSequenceFlow, flowGraphPatch, newFlowUuid, normalizeApproachMode } from '../transport/flowBuilder.js';
 import { parseFlow } from '../transport/flowParser.js';
 import { DEFAULT_BLEND_MM } from './waypointStore.js';
 import { TcpGizmo } from './TcpGizmo.js';
@@ -1057,7 +1057,7 @@ export class WaypointsPanel {
                 continue;
             }
             const common = { name: it.name, velocity: it.velocity, acceleration: it.acceleration, blendingRadius: it.blendingRadius };
-            if (it.mode === 'joint') common.approachMode = it.approachMode === 2 ? 2 : 1;
+            if (it.mode === 'joint') common.approachMode = normalizeApproachMode(it.approachMode);
             if (it.mode === 'cartesian') {
                 // Loaded cartesian → use its pose verbatim (base-relative truth). Captured → exact
                 // RobFlow capture if available, else derive from the world pose at the current base.
@@ -1186,18 +1186,23 @@ export class WaypointsPanel {
         try {
             const back = await this.client.getExportableFlow(uuid);
             if ((back?.groups || []).length) return ''; // PATCH persisted them — nothing to do
-            // Import the replacement FIRST (fresh uuid — the old flow still exists), and only
-            // delete the old copy once the new one is confirmed on the controller. A failed
-            // import must never leave the user with no flow at all.
-            const replacement = { ...flow, uuid: newFlowUuid() };
-            const created = await this.client.importFlow(replacement);
-            this._currentFlowUuid = created?.uuid || replacement.uuid;
+            // Recreate under the SAME uuid (dashboards/HMIs reference flows by uuid) without
+            // ever holding zero copies: import a temporary safety copy first, then delete and
+            // re-import the original uuid, then drop the temp. A failed import must never
+            // leave the user with no flow at all.
+            const temp = { ...flow, uuid: newFlowUuid() };
+            const created = await this.client.importFlow(temp);
+            const tempUuid = created?.uuid || temp.uuid;
             try {
                 await this.client.deleteFlow(uuid);
+                await this.client.importFlow(flow); // original uuid — external references stay valid
             } catch (e) {
-                console.warn('[RobCo] stale flow copy could not be deleted after recreate:', e);
-                return ' · doc groups reapplied (old flow copy remains — delete it in the editor)';
+                // Original uuid could not be recreated — the safety copy is the flow now.
+                console.warn('[RobCo] flow recreate under the original uuid failed — keeping the safety copy:', e);
+                this._currentFlowUuid = tempUuid;
+                return ' · doc groups reapplied under a NEW flow id (original could not be recreated)';
             }
+            this.client.deleteFlow(tempUuid).catch((e) => console.warn('[RobCo] temp flow cleanup failed:', e));
             return ' · doc groups reapplied (backend drops groups on update — flow recreated)';
         } catch (e) {
             // The patch itself succeeded — don't fail the push over the verification.

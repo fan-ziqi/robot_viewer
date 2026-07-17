@@ -294,8 +294,12 @@ export class ViewPanel {
 
     // --- FK joint drag --------------------------------------------------
     async _setFkDrag(on) {
+        // Stale-continuation guard: the first enable awaits a dynamic import, and the user may
+        // toggle again (or enable teach) meanwhile — only the latest request may proceed.
+        const req = this._fkReq = (this._fkReq || 0) + 1;
         if (on && !this._fkDrag) {
             const { PointerJointDragControls } = await import('../utils/JointDragControls.js');
+            if (req !== this._fkReq) return; // superseded while the import was in flight
             this._fkDrag = new PointerJointDragControls(this.sm.scene, this.sm.camera, this.sm.renderer.domElement, this._model());
             // Disable OrbitControls only while actually dragging a joint, so the camera
             // doesn't orbit at the same time; restore it on release.
@@ -304,8 +308,13 @@ export class ViewPanel {
             // Without this hook a dragged angle is computed and dropped (updateJoint is a pure
             // passthrough) — the drag would never move the arm.
             this._fkDrag.onUpdateJoint = (joint, angle) => {
-                if (joint.limits) angle = Math.max(joint.limits.lower, Math.min(joint.limits.upper, angle));
-                ModelLoaderFactory.setJointAngle(this._fkDrag.model, joint.name, angle);
+                const m = this._fkDrag.model;
+                // Honor the "ignore limits" toggle the same way moveRay/setJointAngle do.
+                const ignoreLimits = m?.userData?.ignoreLimits || m?.threeObject?.userData?.ignoreLimits || false;
+                if (!ignoreLimits && joint.limits) {
+                    angle = Math.max(joint.limits.lower, Math.min(joint.limits.upper, angle));
+                }
+                ModelLoaderFactory.setJointAngle(m, joint.name, angle, ignoreLimits);
                 joint.currentValue = angle;
                 this.sm.redraw?.();
             };

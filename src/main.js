@@ -17,14 +17,10 @@ import { USDViewerManager } from './renderer/USDViewerManager.js';
 import { MujocoSimulationManager } from './renderer/MujocoSimulationManager.js';
 import { i18n } from './utils/i18n.js';
 import { setRayFromCamera } from './robco/pickRay.js';
+import { escapeHtml } from './utils/escapeHtml.js';
 
 // Expose d3 globally for PanelManager
 window.d3 = d3;
-
-// Escape untrusted text (file names, model-derived strings) before innerHTML interpolation.
-const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-));
 
 // Expose i18n globally
 window.i18n = i18n;

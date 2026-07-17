@@ -80,6 +80,7 @@ export class FileHandler {
         // save of the current model breaks. Restore IN PLACE — main.js holds a reference to
         // this exact Map instance.
         const prevFiles = new Map(this.fileMap);
+        const prevModels = this.availableModels;
         this.fileMap.clear();
         let loadedCount = 0;
 
@@ -113,10 +114,10 @@ export class FileHandler {
                     const loadableFiles = await this.findAllLoadableFiles(Array.from(files));
 
                     if (loadableFiles.length > 0) {
-                        loadedCount = loadableFiles.length;
                         this.availableModels = loadableFiles;
                         this.onFilesLoaded?.(loadableFiles);
                         await this.loadFileOrMesh(loadableFiles[0]);
+                        loadedCount = loadableFiles.length; // only counts once the load survived
                     }
                 }
             }
@@ -125,6 +126,10 @@ export class FileHandler {
                 console.warn('[FileHandler] drop contained no loadable files — keeping the current workspace');
                 this.fileMap.clear();
                 for (const [k, v] of prevFiles) this.fileMap.set(k, v);
+                // The tree/model list may already have been rebuilt from the failed drop —
+                // re-fire with the restored state so the UI and the map agree again.
+                this.availableModels = prevModels;
+                this.onFilesLoaded?.(prevModels || []);
             }
         }
     }
