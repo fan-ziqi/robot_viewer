@@ -21,6 +21,11 @@ import { setRayFromCamera } from './robco/pickRay.js';
 // Expose d3 globally for PanelManager
 window.d3 = d3;
 
+// Escape untrusted text (file names, model-derived strings) before innerHTML interpolation.
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+));
+
 // Expose i18n globally
 window.i18n = i18n;
 
@@ -692,10 +697,10 @@ class App {
         const statusInfo = document.getElementById('status-info');
         if (!statusInfo || !model) return;
 
-        let info = `<strong>${file.name}</strong><br>`;
+        let info = `<strong>${escapeHtml(file.name)}</strong><br>`;
 
         const fileType = file.name.split('.').pop().toLowerCase();
-        info += `Type: ${fileType.toUpperCase()}<br>`;
+        info += `Type: ${escapeHtml(fileType.toUpperCase())}<br>`;
 
         if (model.links) {
             info += `Links: ${model.links.size}<br>`;
@@ -728,11 +733,11 @@ class App {
                 .map(([type, count]) => `${typeLabels[type] || type}: ${count}`)
                 .join(', ');
 
-            info += `<span style="font-size: 11px; color: #888;">${typeDetails}</span><br>`;
+            info += `<span style="font-size: 11px; color: #888;">${escapeHtml(typeDetails)}</span><br>`;
         }
 
         if (model.rootLink) {
-            info += `Root Link: ${model.rootLink}`;
+            info += `Root Link: ${escapeHtml(model.rootLink)}`;
         }
 
         statusInfo.innerHTML = info;
