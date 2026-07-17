@@ -54,6 +54,7 @@ export class ViewPanel {
 
     setModel(model) {
         this.model = model;
+        if (this._fkDrag) this._fkDrag.model = model; // re-point FK drag — the old model is disposed
         this._buildJointSliders();
     }
 
@@ -300,8 +301,19 @@ export class ViewPanel {
             // doesn't orbit at the same time; restore it on release.
             this._fkDrag.onDragStart = () => { if (this.sm.controls) this.sm.controls.enabled = false; };
             this._fkDrag.onDragEnd = () => { if (this.sm.controls) this.sm.controls.enabled = true; };
+            // Without this hook a dragged angle is computed and dropped (updateJoint is a pure
+            // passthrough) — the drag would never move the arm.
+            this._fkDrag.onUpdateJoint = (joint, angle) => {
+                if (joint.limits) angle = Math.max(joint.limits.lower, Math.min(joint.limits.upper, angle));
+                ModelLoaderFactory.setJointAngle(this._fkDrag.model, joint.name, angle);
+                joint.currentValue = angle;
+                this.sm.redraw?.();
+            };
         }
-        if (this._fkDrag) this._fkDrag.enabled = on;
+        if (this._fkDrag) {
+            this._fkDrag.model = this._model(); // never drag a disposed model from before a rebuild
+            this._fkDrag.enabled = on;
+        }
         if (on) activateManipulator('fk-drag'); // turn off teach gizmo / Setup gizmo
         else { deactivateManipulator('fk-drag'); if (this.sm?.controls) this.sm.controls.enabled = true; }
         // Pause the live WS mirror while FK-dragging so streamed angles don't fight the drag.
