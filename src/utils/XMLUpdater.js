@@ -35,38 +35,19 @@ export class XMLUpdater {
             if (limitMatch) {
                 // Limit tag exists, update attributes
                 let limitTag = limitMatch[0];
-                const limitAttrs = limitMatch[1];
 
-                // Update each attribute
-                if (limits.lower !== undefined && limits.lower !== null) {
-                    if (limitAttrs.includes('lower=')) {
-                        limitTag = limitTag.replace(/lower="[^"]*"/, `lower="${limits.lower}"`);
-                    } else {
-                        limitTag = limitTag.replace(/>$/, ` lower="${limits.lower}">`);
-                    }
-                }
+                // Replace an existing attribute, or append before the tag's closer — keeping a
+                // self-closing "/>" intact (a bare />$/ replace would leave the "/" behind and
+                // produce malformed XML like <limit .../ lower="...">).
+                const setAttr = (tag, name, value) => {
+                    const existing = new RegExp(`${name}="[^"]*"`);
+                    if (existing.test(tag)) return tag.replace(existing, `${name}="${value}"`);
+                    return tag.replace(/\s*(\/?)>$/, (_, slash) => ` ${name}="${value}"${slash}>`);
+                };
 
-                if (limits.upper !== undefined && limits.upper !== null) {
-                    if (limitAttrs.includes('upper=')) {
-                        limitTag = limitTag.replace(/upper="[^"]*"/, `upper="${limits.upper}"`);
-                    } else {
-                        limitTag = limitTag.replace(/>$/, ` upper="${limits.upper}">`);
-                    }
-                }
-
-                if (limits.effort !== undefined && limits.effort !== null) {
-                    if (limitAttrs.includes('effort=')) {
-                        limitTag = limitTag.replace(/effort="[^"]*"/, `effort="${limits.effort}"`);
-                    } else {
-                        limitTag = limitTag.replace(/>$/, ` effort="${limits.effort}">`);
-                    }
-                }
-
-                if (limits.velocity !== undefined && limits.velocity !== null) {
-                    if (limitAttrs.includes('velocity=')) {
-                        limitTag = limitTag.replace(/velocity="[^"]*"/, `velocity="${limits.velocity}"`);
-                    } else {
-                        limitTag = limitTag.replace(/>$/, ` velocity="${limits.velocity}">`);
+                for (const name of ['lower', 'upper', 'effort', 'velocity']) {
+                    if (limits[name] !== undefined && limits[name] !== null) {
+                        limitTag = setAttr(limitTag, name, limits[name]);
                     }
                 }
 
