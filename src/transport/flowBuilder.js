@@ -28,6 +28,13 @@ const uuid = () =>
           }));
 
 const clamp01 = (v) => Math.max(0, Math.min(1, Number.isFinite(+v) ? +v : 0));
+
+/** Fresh flow uuid (for recreating a flow without colliding with the copy still on the controller). */
+export const newFlowUuid = uuid;
+
+/** Clamp to the JointMovement approachMode enum: 1=PTP (default), 2=Linear. The single owner of
+ *  this invariant — every layer that reads or writes approachMode goes through here. */
+export const normalizeApproachMode = (v) => (v === 2 ? 2 : 1);
 const num = (v, d = 0) => (Number.isFinite(+v) ? +v : d);
 const clone = (o) => JSON.parse(JSON.stringify(o));
 // RobFlow's movement-node editor accepts at most 2 decimal places per numeric field. Round
@@ -90,7 +97,7 @@ function movementInline(mode, m) {
         const c = m.cartesian || {};
         mv.pose = { position: round2arr(c.position || [0, 0, 0]), orientation: round2arr(c.orientation || [0, 0, 0]), poseVariableId: null };
     } else {
-        mv.approachMode = 1; // PTP
+        mv.approachMode = normalizeApproachMode(m.approachMode); // PTP unless the loaded flow said Linear
         mv.pose = { jointAngles: round2arr(m.joints || []), poseVariableId: null };
     }
     return mv;

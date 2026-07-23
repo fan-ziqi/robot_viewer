@@ -543,10 +543,19 @@ export class MujocoSimulationManager {
                 this.bodies[b].bodyID = b;
             }
 
-            // Create geometry
-            let geometry = new THREE.SphereGeometry(size[0]);
+            // Create geometry (null = unhandled type, skipped below — a sphere fallback rendered
+            // e.g. the injected ground plane as a giant radius-10 ball)
+            let geometry = null;
 
-            if (type == this.mujoco.mjtGeom.mjGEOM_SPHERE.value) {
+            if (type == this.mujoco.mjtGeom.mjGEOM_PLANE.value) {
+                // MuJoCo plane: size[0]/size[1] are half-extents (0 = infinite → pick a large
+                // visual bound). Normal is geom-local +Z (MuJoCo) = +Y after the scene swizzle,
+                // so bake the facing into the geometry like the other branches bake their axes.
+                const w = size[0] > 0 ? size[0] * 2 : 40;
+                const h = size[1] > 0 ? size[1] * 2 : 40;
+                geometry = new THREE.PlaneGeometry(w, h);
+                geometry.rotateX(-Math.PI / 2);
+            } else if (type == this.mujoco.mjtGeom.mjGEOM_SPHERE.value) {
                 geometry = new THREE.SphereGeometry(size[0], 32, 32);
             } else if (type == this.mujoco.mjtGeom.mjGEOM_CAPSULE.value) {
                 geometry = new THREE.CapsuleGeometry(size[0], size[1] * 2.0, 20, 20);
@@ -564,6 +573,18 @@ export class MujocoSimulationManager {
                 } else {
                     geometry = meshes[meshID];
                 }
+            }
+
+            // Unhandled geom type: keep an INVISIBLE placeholder child so the per-body
+            // geomIndex used for material pairing (bodies[b].children.length) stays aligned —
+            // skipping the geom outright would shift every later geom in this body onto the
+            // wrong original material.
+            let placeholderGeom = false;
+            if (!geometry) {
+                console.warn(`[MuJoCo] unhandled geom type ${type} (geom ${g}) — invisible placeholder`);
+                geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3));
+                placeholderGeom = true;
             }
 
             // Prefer using original model materials
@@ -894,6 +915,7 @@ export class MujocoSimulationManager {
                 mesh.userData.isCollisionGeom = true;
                 mesh.visible = showCollision;  // Set initial visibility based on UI button state
             }
+            if (placeholderGeom) mesh.visible = false;
 
             // Set position and rotation (geom offset relative to body)
             this.getPosition(model.geom_pos, g, mesh.position);
@@ -1048,7 +1070,9 @@ export class MujocoSimulationManager {
         const model = this.model;
         const geometry = new THREE.BufferGeometry();
 
-        const vertex_buffer = model.mesh_vert.subarray(
+        // slice(), not subarray(): these are live views into the WASM heap backing mjModel —
+        // swizzling them in place corrupts MuJoCo's own mesh data (and compounds on re-create).
+        const vertex_buffer = model.mesh_vert.slice(
             model.mesh_vertadr[meshID] * 3,
             (model.mesh_vertadr[meshID] + model.mesh_vertnum[meshID]) * 3
         );
@@ -1060,7 +1084,7 @@ export class MujocoSimulationManager {
             vertex_buffer[v + 2] = -temp;
         }
 
-        const normal_buffer = model.mesh_normal.subarray(
+        const normal_buffer = model.mesh_normal.slice(
             model.mesh_vertadr[meshID] * 3,
             (model.mesh_vertadr[meshID] + model.mesh_vertnum[meshID]) * 3
         );

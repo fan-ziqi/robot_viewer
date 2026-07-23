@@ -6,6 +6,15 @@ import { UnifiedRobotModel, Link, Joint, JointLimits, VisualGeometry, CollisionG
 import * as THREE from 'three';
 import { loadMeshFile, ensureMeshHasPhongMaterial, getLoaders } from '../utils/MeshLoader.js';
 
+// parseOrigin's rpy triples (from `quat` via quaternionToEuler, or MuJoCo's extrinsic-xyz
+// `euler` attribute) describe R = Rz(yaw)·Ry(pitch)·Rx(roll). THREE.Euler must be told so —
+// its default 'XYZ' composes the opposite way and mis-orients every compound rotation.
+const MJCF_EULER_ORDER = 'ZYX';
+
+// MuJoCo's compiler default is angle="degree": `euler` attributes are degrees unless
+// <compiler angle="radian"/> says otherwise. Set per-parse in parse(), read by parseOrigin.
+let mjcfAngleToRad = Math.PI / 180;
+
 export class MJCFAdapter {
     /**
      * Process include tags in MJCF XML
@@ -164,6 +173,10 @@ export class MJCFAdapter {
         const model = new UnifiedRobotModel();
         model.name = 'mujoco_model';
 
+        // Angle unit for euler attributes (MuJoCo defaults to degrees).
+        const compilerEl = doc.querySelector('compiler');
+        mjcfAngleToRad = (compilerEl?.getAttribute('angle') || 'degree') === 'radian' ? 1 : Math.PI / 180;
+
         // Parse default values and class definitions in default tags first
         // (needed for mesh scale inheritance)
         const { classDefaults, rootDefaults } = this.parseDefaults(doc);
@@ -242,7 +255,7 @@ export class MJCFAdapter {
                     }
                 }
 
-                const geom = this.parseGeom(geomEl, meshMap);
+                const geom = this.parseGeom(geomEl, meshMap, inheritedProps);
                 if (geom) {
                     if (isCollisionGeom) {
                         const collision = new CollisionGeometry();
@@ -754,7 +767,7 @@ export class MJCFAdapter {
                     }
                 }
 
-                const geom = this.parseGeom(geomEl, meshMap);
+                const geom = this.parseGeom(geomEl, meshMap, inheritedProps);
                 if (geom) {
                     if (isCollisionGeom) {
                         // Add to collision list
@@ -843,7 +856,7 @@ export class MJCFAdapter {
      * @param {Element} geomEl - geom element
      * @param {Map} meshMap - Mapping from mesh names to file paths
      */
-    static parseGeom(geomEl, meshMap = null) {
+    static parseGeom(geomEl, meshMap = null, inheritedProps = null) {
         // In MJCF, if geom has mesh attribute, type should be mesh
         const meshAttr = geomEl.getAttribute('mesh');
         let type = geomEl.getAttribute('type');
@@ -851,6 +864,12 @@ export class MJCFAdapter {
         // If has mesh attribute but no explicit type declaration, auto-set to mesh
         if (meshAttr && !type) {
             type = 'mesh';
+        }
+
+        // Type may come from a <default> class (e.g. <default><geom type="capsule"/></default>);
+        // ignoring it turned every class-defaulted capsule/box into a sphere at the body origin.
+        if (!type && inheritedProps?.type) {
+            type = inheritedProps.type;
         }
 
         // If no type attribute and no mesh attribute, default to sphere
@@ -982,11 +1001,11 @@ export class MJCFAdapter {
             // Convert to Euler angles
             origin.rpy = this.quaternionToEuler(qw, qx, qy, qz);
         } else {
-            // Check euler attribute
+            // Check euler attribute (unit per <compiler angle> — MuJoCo defaults to degrees)
             const euler = element.getAttribute('euler');
             if (euler) {
                 const rpy = euler.split(' ').map(parseFloat);
-                origin.rpy = [rpy[0] || 0, rpy[1] || 0, rpy[2] || 0];
+                origin.rpy = [(rpy[0] || 0) * mjcfAngleToRad, (rpy[1] || 0) * mjcfAngleToRad, (rpy[2] || 0) * mjcfAngleToRad];
             }
         }
 
@@ -994,7 +1013,23 @@ export class MJCFAdapter {
     }
 
     /**
+     * Compose a geom origin rotation ('ZYX' convention, see MJCF_EULER_ORDER) with a fromto
+     * alignment rotation ('XYZ', as parseGeom computed it) into one quaternion. fromto normally
+     * overrides orientation entirely (origin.rpy is zero) — this degrades to the alignment alone.
+     */
+    static composeOriginFromto(originRpy, fromtoRpy) {
+        const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(...originRpy, MJCF_EULER_ORDER));
+        q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...fromtoRpy)));
+        return q;
+    }
+
+    /**
      * Convert quaternion to Euler angles (simplified version)
+     *
+     * NOTE: these are Tait-Bryan angles for R = Rz(yaw)·Ry(pitch)·Rx(roll) — apply them with
+     * THREE.Euler order 'ZYX' (see MJCF_EULER_ORDER). Three's default 'XYZ' composes the
+     * opposite way and renders any compound rotation wrong. MuJoCo's `euler` attribute
+     * (default eulerseq "xyz", extrinsic) composes the same Rz·Ry·Rx way.
      */
     static quaternionToEuler(w, x, y, z) {
         // Normalize quaternion first (MJCF may use non-normalized quaternions)
@@ -1583,16 +1618,11 @@ export class MJCFAdapter {
                     if (visual.geometry && visual.geometry.fromto) {
                         // Use fromto center position
                         mesh.position.set(...visual.geometry.fromto.center);
-                        // Apply fromto rotation plus any explicit rotation
-                        const fromtoRpy = visual.geometry.fromto.rpy;
-                        mesh.rotation.set(
-                            fromtoRpy[0] + visual.origin.rpy[0],
-                            fromtoRpy[1] + visual.origin.rpy[1],
-                            fromtoRpy[2] + visual.origin.rpy[2]
-                        );
+                        // Adding Euler components composes neither rotation — use the quaternion helper.
+                        mesh.quaternion.copy(this.composeOriginFromto(visual.origin.rpy, visual.geometry.fromto.rpy));
                     } else {
                         mesh.position.set(...visual.origin.xyz);
-                        mesh.rotation.set(...visual.origin.rpy);
+                        mesh.rotation.set(...visual.origin.rpy, MJCF_EULER_ORDER);
                     }
                     mesh.name = visual.name || 'visual';
 
@@ -1711,16 +1741,10 @@ export class MJCFAdapter {
                     if (collision.geometry && collision.geometry.fromto) {
                         // Use fromto center position
                         mesh.position.set(...collision.geometry.fromto.center);
-                        // Apply fromto rotation plus any explicit rotation
-                        const fromtoRpy = collision.geometry.fromto.rpy;
-                        mesh.rotation.set(
-                            fromtoRpy[0] + collision.origin.rpy[0],
-                            fromtoRpy[1] + collision.origin.rpy[1],
-                            fromtoRpy[2] + collision.origin.rpy[2]
-                        );
+                        mesh.quaternion.copy(this.composeOriginFromto(collision.origin.rpy, collision.geometry.fromto.rpy));
                     } else {
                         mesh.position.set(...collision.origin.xyz);
-                        mesh.rotation.set(...collision.origin.rpy);
+                        mesh.rotation.set(...collision.origin.rpy, MJCF_EULER_ORDER);
                     }
                     mesh.name = collision.name || 'collision';
 
@@ -1765,47 +1789,71 @@ export class MJCFAdapter {
                 j => j.parent === linkName && j.child
             );
 
-            // Process child joints and child bodies
-            childJoints.forEach(joint => {
-                const childLinkName = joint.child;
-                if (!childLinkName) return;
+            // Process child joints and child bodies. A body may declare SEVERAL <joint>
+            // elements (serial DOFs, e.g. a 2-hinge universal joint) — they must nest into one
+            // chain. Building each as a sibling re-parents the child geometry into the last
+            // group only (THREE's add() steals it) and rebuilds the subtree once per joint.
+            const jointsByChild = new Map();
+            childJoints.forEach((joint) => {
+                if (!joint.child) return;
+                const list = jointsByChild.get(joint.child) || [];
+                list.push(joint);
+                jointsByChild.set(joint.child, list);
+            });
 
+            for (const [childLinkName, joints] of jointsByChild) {
                 // Get child link's body origin (in MJCF, body.pos defines connection position)
                 const childLink = model.links.get(childLinkName);
                 const bodyOrigin = childLink.userData.bodyOrigin || { xyz: [0, 0, 0], rpy: [0, 0, 0] };
 
-                // Create joint transformation group
-                const jointGroup = new THREE.Group();
-                jointGroup.name = joint.name || `joint_${childLinkName}`;
-                jointGroup.isURDFJoint = true; // Mark as joint for JointDragControls recognition
-                jointGroup.type = 'URDFJoint'; // Set type
-                jointGroup.jointType = joint.type; // Set joint type
+                let mount = linkGroup; // where the next joint group attaches (chain tail)
+                joints.forEach((joint, idx) => {
+                    // Create joint transformation group
+                    const jointGroup = new THREE.Group();
+                    jointGroup.name = joint.name || `joint_${childLinkName}`;
+                    jointGroup.isURDFJoint = true; // Mark as joint for JointDragControls recognition
+                    jointGroup.type = 'URDFJoint'; // Set type
+                    jointGroup.jointType = joint.type; // Set joint type
 
-                // Store joint axis information (for JointDragControls use)
-                if (joint.axis && joint.axis.xyz) {
-                    const mjcfAxis = joint.axis.xyz;
-                    jointGroup.axis = new THREE.Vector3(mjcfAxis[0], mjcfAxis[1], mjcfAxis[2]).normalize();
-                } else {
-                    // If no axis defined, use default value (0, 1, 0)
-                    jointGroup.axis = new THREE.Vector3(0, 1, 0);
-                }
+                    // Store joint axis information (for JointDragControls use)
+                    if (joint.axis && joint.axis.xyz) {
+                        const mjcfAxis = joint.axis.xyz;
+                        jointGroup.axis = new THREE.Vector3(mjcfAxis[0], mjcfAxis[1], mjcfAxis[2]).normalize();
+                    } else {
+                        // If no axis defined, use default value (0, 1, 0)
+                        jointGroup.axis = new THREE.Vector3(0, 1, 0);
+                    }
 
-                // [Critical] Apply body.pos + joint.pos as jointGroup position
-                // body.pos defines body position relative to parent body (i.e., connection position)
-                // joint.pos defines joint offset in body coordinate system (usually 0)
-                jointGroup.position.set(
-                    bodyOrigin.xyz[0] + joint.origin.xyz[0],
-                    bodyOrigin.xyz[1] + joint.origin.xyz[1],
-                    bodyOrigin.xyz[2] + joint.origin.xyz[2]
-                );
-                jointGroup.rotation.set(...bodyOrigin.rpy);
+                    if (idx === 0) {
+                        // [Critical] Apply body.pos + joint.pos as jointGroup position
+                        // body.pos defines body position relative to parent body (i.e., connection position)
+                        // joint.pos defines joint offset in body coordinate system (usually 0)
+                        jointGroup.position.set(
+                            bodyOrigin.xyz[0] + joint.origin.xyz[0],
+                            bodyOrigin.xyz[1] + joint.origin.xyz[1],
+                            bodyOrigin.xyz[2] + joint.origin.xyz[2]
+                        );
+                        jointGroup.rotation.set(...bodyOrigin.rpy, MJCF_EULER_ORDER);
+                    } else {
+                        // Inner joints of the chain: the enclosing group already sits at the
+                        // previous joint's body-frame pos, so only the DELTA between the two
+                        // anchors remains (both joint.pos values are body-frame).
+                        const prev = joints[idx - 1].origin.xyz;
+                        jointGroup.position.set(
+                            joint.origin.xyz[0] - prev[0],
+                            joint.origin.xyz[1] - prev[1],
+                            joint.origin.xyz[2] - prev[2]
+                        );
+                    }
 
-                // Recursively build child link
-                buildHierarchy(childLinkName, jointGroup);
+                    mount.add(jointGroup);
+                    joint.threeObject = jointGroup;
+                    mount = jointGroup;
+                });
 
-                linkGroup.add(jointGroup);
-                joint.threeObject = jointGroup;
-            });
+                // Recursively build child link into the innermost joint group
+                buildHierarchy(childLinkName, mount);
+            }
 
             // Process direct child bodies (find via bodyMap)
             for (const [childName, bodyData] of bodyMap.entries()) {
@@ -1825,7 +1873,7 @@ export class MJCFAdapter {
                         // Create fixed connection group
                         const fixedGroup = new THREE.Group();
                         fixedGroup.position.set(...childBodyOrigin.xyz);
-                        fixedGroup.rotation.set(...childBodyOrigin.rpy);
+                        fixedGroup.rotation.set(...childBodyOrigin.rpy, MJCF_EULER_ORDER);
 
                         // Recursively build child body and add to fixed group
                         buildHierarchy(childName, fixedGroup);
@@ -1844,7 +1892,7 @@ export class MJCFAdapter {
                 const rootLinkGroup = linkObjects.get(rootName);
                 if (rootLink.userData.bodyOrigin) {
                     rootLinkGroup.position.set(...rootLink.userData.bodyOrigin.xyz);
-                    rootLinkGroup.rotation.set(...rootLink.userData.bodyOrigin.rpy);
+                    rootLinkGroup.rotation.set(...rootLink.userData.bodyOrigin.rpy, MJCF_EULER_ORDER);
                 }
                 buildHierarchy(rootName, rootGroup);
             });
@@ -1855,7 +1903,7 @@ export class MJCFAdapter {
             const firstLinkGroup = linkObjects.get(firstLink);
             if (firstLinkObj.userData.bodyOrigin) {
                 firstLinkGroup.position.set(...firstLinkObj.userData.bodyOrigin.xyz);
-                firstLinkGroup.rotation.set(...firstLinkObj.userData.bodyOrigin.rpy);
+                firstLinkGroup.rotation.set(...firstLinkObj.userData.bodyOrigin.rpy, MJCF_EULER_ORDER);
             }
             buildHierarchy(firstLink, rootGroup);
         }

@@ -17,6 +17,7 @@ import { USDViewerManager } from './renderer/USDViewerManager.js';
 import { MujocoSimulationManager } from './renderer/MujocoSimulationManager.js';
 import { i18n } from './utils/i18n.js';
 import { setRayFromCamera } from './robco/pickRay.js';
+import { escapeHtml } from './utils/escapeHtml.js';
 
 // Expose d3 globally for PanelManager
 window.d3 = d3;
@@ -692,10 +693,10 @@ class App {
         const statusInfo = document.getElementById('status-info');
         if (!statusInfo || !model) return;
 
-        let info = `<strong>${file.name}</strong><br>`;
+        let info = `<strong>${escapeHtml(file.name)}</strong><br>`;
 
         const fileType = file.name.split('.').pop().toLowerCase();
-        info += `Type: ${fileType.toUpperCase()}<br>`;
+        info += `Type: ${escapeHtml(fileType.toUpperCase())}<br>`;
 
         if (model.links) {
             info += `Links: ${model.links.size}<br>`;
@@ -728,11 +729,11 @@ class App {
                 .map(([type, count]) => `${typeLabels[type] || type}: ${count}`)
                 .join(', ');
 
-            info += `<span style="font-size: 11px; color: #888;">${typeDetails}</span><br>`;
+            info += `<span style="font-size: 11px; color: #888;">${escapeHtml(typeDetails)}</span><br>`;
         }
 
         if (model.rootLink) {
-            info += `Root Link: ${model.rootLink}`;
+            info += `Root Link: ${escapeHtml(model.rootLink)}`;
         }
 
         statusInfo.innerHTML = info;

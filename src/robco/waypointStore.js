@@ -22,6 +22,7 @@
  * BaseFrame.worldGroup and exist only for move steps.
  */
 import * as THREE from 'three';
+import { normalizeApproachMode } from '../transport/flowBuilder.js';
 
 const KEY = 'robco-waypoints';
 const ONE = new THREE.Vector3(1, 1, 1);
@@ -155,6 +156,7 @@ export class WaypointStore {
                     joints: (s.joints || []).slice(),
                     cartesian: s.cartesian ? { position: s.cartesian.position.slice(), orientation: s.cartesian.orientation.slice() } : null,
                     velocity: s.velocity, acceleration: s.acceleration, blendingRadius: s.blendingRadius,
+                    approachMode: s.approachMode,
                 });
             }
             if (s.group?.key) {
@@ -198,6 +200,7 @@ export class WaypointStore {
             velocity: clamp01(spec.velocity ?? 1),
             acceleration: clamp01(spec.acceleration ?? 1),
             blendingRadius: Math.max(0, Math.round(spec.blendingRadius ?? DEFAULT_BLEND_MM)),
+            approachMode: normalizeApproachMode(spec.approachMode), // joint moves: 1=PTP, 2=Linear
             reachable: true,
         };
         if (it.worldPose) { it._marker = this._makeMarker(it); this.group.add(it._marker); }
@@ -530,6 +533,7 @@ export class WaypointStore {
                         worldPose: it.worldPose, joints: it.joints, cartesian: it.cartesian || null,
                         robflowPose: it.robflowPose || null,
                         velocity: it.velocity, acceleration: it.acceleration, blendingRadius: it.blendingRadius,
+                        approachMode: normalizeApproachMode(it.approachMode),
                     };
                 }
                 if (it.groupId) d.groupId = it.groupId;
@@ -569,6 +573,7 @@ export class WaypointStore {
                         robflowPose: d.robflowPose || null,
                         velocity: clamp01(d.velocity ?? 1), acceleration: clamp01(d.acceleration ?? 1),
                         blendingRadius: Math.max(0, Math.round(d.blendingRadius ?? DEFAULT_BLEND_MM)),
+                        approachMode: normalizeApproachMode(d.approachMode),
                         reachable: true,
                     };
                 }

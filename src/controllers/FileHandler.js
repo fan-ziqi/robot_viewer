@@ -75,41 +75,61 @@ export class FileHandler {
         const items = e.dataTransfer.items;
         if (!items || items.length === 0) return;
 
+        // Don't wipe the current workspace until the drop proves loadable: an empty or unusable
+        // drop (or a mid-read error) must leave the loaded model's file map intact, or reload/
+        // save of the current model breaks. Restore IN PLACE — main.js holds a reference to
+        // this exact Map instance.
+        const prevFiles = new Map(this.fileMap);
+        const prevModels = this.availableModels;
         this.fileMap.clear();
+        let loadedCount = 0;
 
-        const entries = [];
-        for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            if (item.webkitGetAsEntry) {
-                const entry = item.webkitGetAsEntry();
-                if (entry) {
-                    entries.push(entry);
-                }
-            }
-        }
-
-        if (entries.length > 0) {
-            await this.processEntries(entries);
-        } else {
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                for (const file of files) {
-                    const path = file.webkitRelativePath || file.name;
-                    this.fileMap.set(path, file);
-                    // Only add file.name as a separate key if there's no webkitRelativePath
-                    // This prevents duplicate entries in the file tree
-                    if (!file.webkitRelativePath) {
-                        this.fileMap.set(file.name, file);
+        try {
+            const entries = [];
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (item.webkitGetAsEntry) {
+                    const entry = item.webkitGetAsEntry();
+                    if (entry) {
+                        entries.push(entry);
                     }
                 }
+            }
 
-                const loadableFiles = await this.findAllLoadableFiles(Array.from(files));
+            if (entries.length > 0) {
+                loadedCount = await this.processEntries(entries);
+            } else {
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    for (const file of files) {
+                        const path = file.webkitRelativePath || file.name;
+                        this.fileMap.set(path, file);
+                        // Only add file.name as a separate key if there's no webkitRelativePath
+                        // This prevents duplicate entries in the file tree
+                        if (!file.webkitRelativePath) {
+                            this.fileMap.set(file.name, file);
+                        }
+                    }
 
-                if (loadableFiles.length > 0) {
-                    this.availableModels = loadableFiles;
-                    this.onFilesLoaded?.(loadableFiles);
-                    await this.loadFileOrMesh(loadableFiles[0]);
+                    const loadableFiles = await this.findAllLoadableFiles(Array.from(files));
+
+                    if (loadableFiles.length > 0) {
+                        this.availableModels = loadableFiles;
+                        this.onFilesLoaded?.(loadableFiles);
+                        await this.loadFileOrMesh(loadableFiles[0]);
+                        loadedCount = loadableFiles.length; // only counts once the load survived
+                    }
                 }
+            }
+        } finally {
+            if (loadedCount === 0 && prevFiles.size > 0) {
+                console.warn('[FileHandler] drop contained no loadable files — keeping the current workspace');
+                this.fileMap.clear();
+                for (const [k, v] of prevFiles) this.fileMap.set(k, v);
+                // The tree/model list may already have been rebuilt from the failed drop —
+                // re-fire with the restored state so the UI and the map agree again.
+                this.availableModels = prevModels;
+                this.onFilesLoaded?.(prevModels || []);
             }
         }
     }
@@ -132,21 +152,19 @@ export class FileHandler {
             }
         }
 
-        if (files.length === 0) return;
+        if (files.length === 0) return 0;
 
         const loadableFiles = await this.findAllLoadableFiles(files);
 
-        if (loadableFiles.length === 0) {
-            this.onFilesLoaded?.([]);
-            return;
-        }
+        // Nothing loadable: report 0 so handleDrop restores the previous workspace — and don't
+        // blank the file tree over it.
+        if (loadableFiles.length === 0) return 0;
 
         this.availableModels = loadableFiles;
         this.onFilesLoaded?.(loadableFiles);
 
-        if (loadableFiles.length > 0) {
-            await this.loadFileOrMesh(loadableFiles[0]);
-        }
+        await this.loadFileOrMesh(loadableFiles[0]);
+        return loadableFiles.length;
     }
 
     /**

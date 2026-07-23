@@ -54,6 +54,7 @@ export class ViewPanel {
 
     setModel(model) {
         this.model = model;
+        if (this._fkDrag) this._fkDrag.model = model; // re-point FK drag — the old model is disposed
         this._buildJointSliders();
     }
 
@@ -293,15 +294,35 @@ export class ViewPanel {
 
     // --- FK joint drag --------------------------------------------------
     async _setFkDrag(on) {
+        // Stale-continuation guard: the first enable awaits a dynamic import, and the user may
+        // toggle again (or enable teach) meanwhile — only the latest request may proceed.
+        const req = this._fkReq = (this._fkReq || 0) + 1;
         if (on && !this._fkDrag) {
             const { PointerJointDragControls } = await import('../utils/JointDragControls.js');
+            if (req !== this._fkReq) return; // superseded while the import was in flight
             this._fkDrag = new PointerJointDragControls(this.sm.scene, this.sm.camera, this.sm.renderer.domElement, this._model());
             // Disable OrbitControls only while actually dragging a joint, so the camera
             // doesn't orbit at the same time; restore it on release.
             this._fkDrag.onDragStart = () => { if (this.sm.controls) this.sm.controls.enabled = false; };
             this._fkDrag.onDragEnd = () => { if (this.sm.controls) this.sm.controls.enabled = true; };
+            // Without this hook a dragged angle is computed and dropped (updateJoint is a pure
+            // passthrough) — the drag would never move the arm.
+            this._fkDrag.onUpdateJoint = (joint, angle) => {
+                const m = this._fkDrag.model;
+                // Honor the "ignore limits" toggle the same way moveRay/setJointAngle do.
+                const ignoreLimits = m?.userData?.ignoreLimits || m?.threeObject?.userData?.ignoreLimits || false;
+                if (!ignoreLimits && joint.limits) {
+                    angle = Math.max(joint.limits.lower, Math.min(joint.limits.upper, angle));
+                }
+                ModelLoaderFactory.setJointAngle(m, joint.name, angle, ignoreLimits);
+                joint.currentValue = angle;
+                this.sm.redraw?.();
+            };
         }
-        if (this._fkDrag) this._fkDrag.enabled = on;
+        if (this._fkDrag) {
+            this._fkDrag.model = this._model(); // never drag a disposed model from before a rebuild
+            this._fkDrag.enabled = on;
+        }
         if (on) activateManipulator('fk-drag'); // turn off teach gizmo / Setup gizmo
         else { deactivateManipulator('fk-drag'); if (this.sm?.controls) this.sm.controls.enabled = true; }
         // Pause the live WS mirror while FK-dragging so streamed angles don't fight the drag.
