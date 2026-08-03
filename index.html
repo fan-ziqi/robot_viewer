@@ -2891,7 +2891,19 @@
             pointer-events: none;
             user-select: none;
             opacity: 0.8;
-            transition: opacity 0.3s ease;
+            transition: bottom 0.3s var(--spring), opacity 0.3s ease, visibility 0.3s ease;
+        }
+
+        body.animation-editor-open #bottom-help-bar {
+            bottom: -48px;
+            z-index: 1;
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        body.animation-editor-open #copyright-watermark {
+            opacity: 0;
+            visibility: hidden;
         }
 
         #bottom-help-bar:hover {
@@ -2975,6 +2987,9 @@
                     </button>
                     <button class="tool-button active" id="toggle-joints-panel">
                         <span class="tool-button-text" data-i18n="joints"></span>
+                    </button>
+                    <button class="tool-button" id="toggle-animation-panel">
+                        <span class="tool-button-text" data-i18n="animation"></span>
                     </button>
                     <button class="tool-button" id="toggle-model-tree">
                         <span class="tool-button-text" data-i18n="structure"></span>

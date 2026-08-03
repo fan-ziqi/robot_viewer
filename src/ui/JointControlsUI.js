@@ -12,6 +12,27 @@ export class JointControlsUI {
         this.initialJointValues = new Map(); // Save initial joint positions when model loads
         this.codeEditorManager = null; // Code editor manager reference
         this.isUpdatingFromEditor = false; // Flag to prevent circular updates
+        this.poseController = null;
+        this.unsubscribePose = null;
+    }
+
+    setPoseController(poseController) {
+        this.unsubscribePose?.();
+        this.poseController = poseController;
+        this.unsubscribePose = poseController?.subscribe((event) => {
+            if (event.type === 'jointChanged') {
+                this.updateJointDisplay(event.jointName, event.value);
+            }
+        });
+    }
+
+    updateJointDisplay(jointName, value) {
+        const slider = Array.from(document.querySelectorAll('input[data-joint]'))
+            .find((input) => input.dataset.joint === jointName);
+        if (!slider) return;
+        slider.value = value;
+        const control = slider.closest('.joint-control');
+        control?._updateDisplay?.();
     }
 
     /**
@@ -229,10 +250,10 @@ export class JointControlsUI {
         slider.setAttribute('data-joint', joint.name);
         slider.min = lower;
         slider.max = upper;
+        slider.step = (upper - lower) / 1000;
 
         let initialValue = joint.currentValue !== undefined ? joint.currentValue : (lower + upper) / 2;
         slider.value = initialValue;
-        slider.step = (upper - lower) / 1000;
 
         // Editable lower limit label
         const minLabel = document.createElement('input');
@@ -306,8 +327,15 @@ export class JointControlsUI {
             const currentValue = parseFloat(slider.value);
             if (currentValue < valueInRad) {
                 slider.value = valueInRad;
-                ModelLoaderFactory.setJointAngle(model, joint.name, valueInRad);
-                joint.currentValue = valueInRad;
+                if (this.poseController) {
+                    this.poseController.setJointValue(joint.name, valueInRad, {
+                        source: 'limits',
+                        commit: false
+                    });
+                } else {
+                    ModelLoaderFactory.setJointAngle(model, joint.name, valueInRad);
+                    joint.currentValue = valueInRad;
+                }
                 updateValueInput();
                 this.sceneManager.redraw();
                 this.sceneManager.render();
@@ -352,8 +380,15 @@ export class JointControlsUI {
             const currentValue = parseFloat(slider.value);
             if (currentValue > valueInRad) {
                 slider.value = valueInRad;
-                ModelLoaderFactory.setJointAngle(model, joint.name, valueInRad);
-                joint.currentValue = valueInRad;
+                if (this.poseController) {
+                    this.poseController.setJointValue(joint.name, valueInRad, {
+                        source: 'limits',
+                        commit: false
+                    });
+                } else {
+                    ModelLoaderFactory.setJointAngle(model, joint.name, valueInRad);
+                    joint.currentValue = valueInRad;
+                }
                 updateValueInput();
                 this.sceneManager.redraw();
                 this.sceneManager.render();
@@ -516,12 +551,19 @@ export class JointControlsUI {
 
         slider.addEventListener('input', () => {
             const value = parseFloat(slider.value);
-            ModelLoaderFactory.setJointAngle(model, joint.name, value);
-            joint.currentValue = value;
+            if (this.poseController) {
+                this.poseController.setJointValue(joint.name, value, {
+                    source: 'user',
+                    commit: false
+                });
+            } else {
+                ModelLoaderFactory.setJointAngle(model, joint.name, value);
+                joint.currentValue = value;
+            }
             updateValueInput();
 
             // Apply parallel mechanism constraints
-            if (this.sceneManager.constraintManager) {
+            if (!this.poseController && this.sceneManager.constraintManager) {
                 this.sceneManager.constraintManager.applyConstraints(model, joint);
             }
 
@@ -541,6 +583,10 @@ export class JointControlsUI {
             }
         });
 
+        slider.addEventListener('change', () => {
+            this.poseController?.commitJointValue(joint.name, { source: 'user' });
+        });
+
         // Manual input event
         valueInput.addEventListener('change', () => {
             let inputValue = parseFloat(valueInput.value);
@@ -556,11 +602,18 @@ export class JointControlsUI {
             valueInRad = Math.max(currentMin, Math.min(currentMax, valueInRad));
 
             slider.value = valueInRad;
-            ModelLoaderFactory.setJointAngle(model, joint.name, valueInRad);
-            joint.currentValue = valueInRad;
+            if (this.poseController) {
+                this.poseController.setJointValue(joint.name, valueInRad, {
+                    source: 'user',
+                    commit: true
+                });
+            } else {
+                ModelLoaderFactory.setJointAngle(model, joint.name, valueInRad);
+                joint.currentValue = valueInRad;
+            }
 
             // Apply parallel mechanism constraints
-            if (this.sceneManager.constraintManager) {
+            if (!this.poseController && this.sceneManager.constraintManager) {
                 this.sceneManager.constraintManager.applyConstraints(model, joint);
             }
 
@@ -616,9 +669,18 @@ export class JointControlsUI {
                 }
 
                 // Set joint angle, ignore limit constraints because initial position may exceed current limits
-                ModelLoaderFactory.setJointAngle(model, name, initialValue, true);
-
-                joint.currentValue = initialValue;
+                if (this.poseController) {
+                    this.poseController.setJointValue(name, initialValue, {
+                        source: 'reset',
+                        commit: false,
+                        ignoreLimits: true,
+                        render: false,
+                        measure: false
+                    });
+                } else {
+                    ModelLoaderFactory.setJointAngle(model, name, initialValue, true);
+                    joint.currentValue = initialValue;
+                }
 
                 const slider = document.querySelector(`input[data-joint="${name}"]`);
                 if (slider) {

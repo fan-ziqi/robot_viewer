@@ -98,6 +98,8 @@ export class SceneManager {
         // Current model
         this.currentModel = null;
         this.ignoreLimits = false;
+        this.poseController = null;
+        this._draggedJointName = null;
 
         // Drag controls
         this.dragControls = null;
@@ -551,6 +553,10 @@ export class SceneManager {
 
     // ==================== Drag Controls ====================
 
+    setPoseController(poseController) {
+        this.poseController = poseController;
+    }
+
     initDragControls(model) {
         if (this.dragControls) {
             this.dragControls.dispose();
@@ -594,39 +600,27 @@ export class SceneManager {
                                       this.dragControls.model.userData &&
                                       this.dragControls.model.userData.ignoreLimits);
 
-            if (!checkIgnoreLimits && joint.limits) {
-                angle = Math.max(joint.limits.lower, Math.min(joint.limits.upper, angle));
-            }
+            this._draggedJointName = joint.name;
 
-            ModelLoaderFactory.setJointAngle(model, joint.name, angle);
-            joint.currentValue = angle;
-
-            // Apply parallel mechanism constraints
-            this.constraintManager.applyConstraints(model, joint);
-
-            // Update corresponding slider (if exists)
-            const slider = document.querySelector(`input[data-joint="${joint.name}"]`);
-            if (slider) {
-                slider.value = angle;
-
-                // Update input box
-                const valueInput = document.querySelector(`input[data-joint-input="${joint.name}"]`);
-                if (valueInput) {
-                    const angleUnit = document.querySelector('#unit-deg.active') ? 'deg' : 'rad';
-                    if (angleUnit === 'deg') {
-                        valueInput.value = (angle * 180 / Math.PI).toFixed(2);
-                    } else {
-                        valueInput.value = angle.toFixed(2);
-                    }
+            if (this.poseController) {
+                this.poseController.setJointValue(joint.name, angle, {
+                    source: 'viewport',
+                    commit: false,
+                    ignoreLimits: checkIgnoreLimits
+                });
+            } else {
+                if (!checkIgnoreLimits && joint.limits) {
+                    angle = Math.max(joint.limits.lower, Math.min(joint.limits.upper, angle));
                 }
-            }
 
-            // Only render during drag, no complex calculations
-            this.redraw();
+                ModelLoaderFactory.setJointAngle(model, joint.name, angle);
+                joint.currentValue = angle;
+                this.constraintManager.applyConstraints(model, joint);
+                this.redraw();
 
-            // Trigger measurement update
-            if (this.onMeasurementUpdate) {
-                this.onMeasurementUpdate();
+                if (this.onMeasurementUpdate) {
+                    this.onMeasurementUpdate();
+                }
             }
         };
 
@@ -669,6 +663,11 @@ export class SceneManager {
 
         this.dragControls.onDragEnd = (link) => {
             this.controls.enabled = true;
+
+            if (this.poseController && this._draggedJointName) {
+                this.poseController.commitJointValue(this._draggedJointName, { source: 'viewport' });
+            }
+            this._draggedJointName = null;
 
             // Restore all joint axes display
             this.axesManager.restoreAllJointAxes();

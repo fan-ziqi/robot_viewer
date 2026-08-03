@@ -4,7 +4,7 @@
 
 # Robot Viewer
 
-[![Version](https://img.shields.io/badge/version-v1.2.0-blue.svg)](https://github.com/fan-ziqi/robot_viewer)
+[![Version](https://img.shields.io/badge/version-v1.3.0-blue.svg)](https://github.com/fan-ziqi/robot_viewer)
 [![License](https://img.shields.io/badge/license-Apache--2.0-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-web-orange.svg)](https://github.com/fan-ziqi/robot_viewer)
 [![JavaScript](https://img.shields.io/badge/language-JavaScript-f1e05a.svg)](https://github.com/fan-ziqi/robot_viewer)
@@ -26,8 +26,9 @@
   - **MJCF**: Mujoco XML format
   - **USD**: Universal Scene Description (partial support)
 - **Robot Types**: Serial robot structures (parallel robots not currently supported)
-- **Visualization Tools**: Visual/collision geometry, inertia tensors, center of mass, coordinate frames, joint axes, shadows, coordinate system orientation
+- **Visualization Tools**: Visual/collision geometry, inertia tensors, center of mass, coordinate frames, joint axes, shadows, ground grid visibility, coordinate system orientation
 - **Interactive Controls**: Drag joints in real-time, adjust model poses
+- **Animation Editor (Experimental)**: Multi-clip dope sheet and Bézier graph editor with auto-key, multi-selection, undo/redo, play/record ranges, event and media tracks, pose snapshots, audio-reactive keys, live-input recording, autosave, and portable `.robotanim.json` projects
 - **Measurement Tools**: Measure distances between joints and links with 3D visualization, display X/Y/Z axis projections and total distance, support ground height measurement
 - **Code Editor**: Built-in CodeMirror editor with syntax highlighting and live preview
 - **Physics Simulation**: Integrated MuJoCo engine for dynamics simulation (MJCF models)

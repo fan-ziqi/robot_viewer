@@ -16,6 +16,8 @@ import { MeasurementController } from './controllers/MeasurementController.js';
 import { USDViewerManager } from './renderer/USDViewerManager.js';
 import { MujocoSimulationManager } from './renderer/MujocoSimulationManager.js';
 import { i18n } from './utils/i18n.js';
+import { PoseController } from './animation/runtime/PoseController.js';
+import { AnimationWorkspace } from './animation/ui/AnimationWorkspace.js';
 
 // Expose d3 globally for PanelManager
 window.d3 = d3;
@@ -37,6 +39,8 @@ class App {
         this.measurementController = null;
         this.usdViewerManager = null;
         this.mujocoSimulationManager = null;
+        this.poseController = null;
+        this.animationWorkspace = null;
         this.currentModel = null;
         this.currentMJCFFile = null;
         this.currentMJCFModel = null;
@@ -120,6 +124,9 @@ class App {
             this.sceneManager = new SceneManager(canvas);
             window.sceneManager = this.sceneManager; // For debugging
 
+            this.poseController = new PoseController(this.sceneManager);
+            this.sceneManager.setPoseController(this.poseController);
+
             // Create USD viewer container (container only, WASM initialized on demand)
             this.createUSDViewerContainer();
 
@@ -144,6 +151,7 @@ class App {
 
             // Initialize joint controls UI
             this.jointControlsUI = new JointControlsUI(this.sceneManager);
+            this.jointControlsUI.setPoseController(this.poseController);
 
             // Initialize model graph view
             this.modelGraphView = new ModelGraphView(this.sceneManager);
@@ -177,6 +185,12 @@ class App {
                 onMujocoReset: () => this.handleMujocoReset(),
                 onMujocoToggleSimulate: () => this.handleMujocoToggleSimulate()
             });
+
+            // Animation editor is deliberately separate from hardware/simulation.
+            this.animationWorkspace = new AnimationWorkspace({
+                poseController: this.poseController
+            });
+            window.animationWorkspace = this.animationWorkspace;
 
             // Set measurement update callback
             this.sceneManager.onMeasurementUpdate = () => {
@@ -364,6 +378,7 @@ class App {
             }
 
             this.currentModel = model;
+            this.animationWorkspace?.setModel(null, file.name);
             this.updateModelInfo(model, file);
 
             // Hide snapshot if exists
@@ -402,6 +417,7 @@ class App {
         }
 
         this.currentModel = model;
+        this.animationWorkspace?.setModel(isMesh ? null : model, file.name);
 
         // Force render current state first (important!)
         this.sceneManager.redraw();
@@ -840,6 +856,7 @@ class App {
         if (this.currentModel && this.modelGraphView) {
             this.modelGraphView.drawModelGraph(this.currentModel);
         }
+        this.animationWorkspace?.refreshTheme();
     }
 
     /**
@@ -875,6 +892,7 @@ class App {
      */
     handleLanguageChanged(lang) {
         i18n.setLanguage(lang);
+        this.animationWorkspace?.refreshLanguage();
 
         // Update code editor save status text
         if (this.codeEditorManager) {
