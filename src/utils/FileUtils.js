@@ -188,9 +188,9 @@ export function resolveFileFromMap(path, fileMap, options = {}) {
     }
 
     if (baseDir && normalizedPath && !normalizedPath.startsWith(baseDir)) {
-        addCandidate(candidates, baseDir + normalizedPath);
+        addCandidate(candidates, `${baseDir.replace(/[\\/]+$/, '')}/${normalizedPath}`);
         if (normalizedParts.length > 1) {
-            addCandidate(candidates, baseDir + normalizedParts.slice(1).join('/'));
+            addCandidate(candidates, `${baseDir.replace(/[\\/]+$/, '')}/${normalizedParts.slice(1).join('/')}`);
         }
     }
 
@@ -216,14 +216,25 @@ export function resolveFileFromMap(path, fileMap, options = {}) {
         return exactCaseInsensitiveMatch;
     }
 
-    const suffixMatch = getUniqueFileByPredicate(fileMap, key => {
-        const normalizedKey = cleanFilePath(key).toLowerCase();
-        return Array.from(lowerCandidates).some(candidate => (
-            candidate && normalizedKey.endsWith('/' + candidate)
-        ));
-    });
-    if (suffixMatch) {
-        return suffixMatch;
+    // Try suffixes from most to least specific. Checking every candidate in a
+    // single predicate lets a broad fallback such as "meshes/base.dae" make a
+    // package-qualified path such as "go2_description/meshes/base.dae" look
+    // ambiguous when several robot packages share the same mesh basename.
+    const orderedSuffixCandidates = Array.from(lowerCandidates)
+        .filter(Boolean)
+        .sort((a, b) => {
+            const segmentDifference = b.split('/').length - a.split('/').length;
+            return segmentDifference || b.length - a.length;
+        });
+
+    for (const candidate of orderedSuffixCandidates) {
+        const suffixMatch = getUniqueFileByPredicate(fileMap, key => {
+            const normalizedKey = cleanFilePath(key).toLowerCase();
+            return normalizedKey === candidate || normalizedKey.endsWith('/' + candidate);
+        });
+        if (suffixMatch) {
+            return suffixMatch;
+        }
     }
 
     const fileName = cleanFilePath(rawPath).split('/').pop()?.toLowerCase();

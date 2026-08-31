@@ -274,7 +274,10 @@ export class FileTreeView {
     isModelXML(fileName) {
         const lowerName = fileName.toLowerCase();
         // Exclude common non-model XML files
-        const excludePatterns = ['package', 'launch', 'config', 'scene', 'ros'];
+        // MJCF scene files are valid load targets: they may include the robot
+        // and add a floor/lights.  Keep only metadata/ROS support files out of
+        // the tree; scene.xml should remain selectable.
+        const excludePatterns = ['package', 'launch', 'config', 'ros'];
         return !excludePatterns.some(pattern => lowerName.includes(pattern));
     }
 
@@ -455,4 +458,3 @@ export class FileTreeView {
         return item;
     }
 }
-

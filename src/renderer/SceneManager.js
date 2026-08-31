@@ -218,7 +218,7 @@ export class SceneManager {
         try {
             if (model.threeObject) {
                 model.threeObject.updateMatrixWorld(true);
-                const bbox = new THREE.Box3().setFromObject(model.threeObject);
+                const bbox = this.getModelBoundingBox(model.threeObject);
                 if (!bbox.isEmpty()) {
                     const size = bbox.getSize(new THREE.Vector3());
                     modelSize = Math.max(size.x, size.y, size.z);
@@ -320,6 +320,55 @@ export class SceneManager {
     // ==================== Environment & Camera ====================
 
     /**
+     * Calculate renderable model bounds while ignoring display stand-ins for
+     * unbounded scene primitives (for example an infinite MJCF floor plane).
+     * Such meshes still render, but must not make a small robot disappear when
+     * the camera auto-fits the complete scene.
+     */
+    getModelBoundingBox(object) {
+        const bounds = new THREE.Box3();
+        const childBounds = new THREE.Box3();
+        let hasExcludedGeometry = false;
+
+        object.updateWorldMatrix(true, true);
+        object.traverse(child => {
+            if (!child.geometry ||
+                (!child.isMesh && !child.isLine && !child.isPoints)) {
+                return;
+            }
+
+            // Three.js Box3.setFromObject includes invisible descendants. For
+            // framing, hidden collision bodies and helper axes must not count.
+            let current = child;
+            while (current) {
+                if (!current.visible || current.userData?.excludeFromBounds) {
+                    hasExcludedGeometry = hasExcludedGeometry ||
+                        !!current.userData?.excludeFromBounds;
+                    return;
+                }
+                if (current === object) break;
+                current = current.parent;
+            }
+
+            if (!child.geometry.boundingBox) {
+                child.geometry.computeBoundingBox();
+            }
+            if (!child.geometry.boundingBox) return;
+
+            childBounds.copy(child.geometry.boundingBox).applyMatrix4(child.matrixWorld);
+            bounds.union(childBounds);
+        });
+
+        // A floor-only file should still be frameable. The fallback is only
+        // used when every renderable primitive was deliberately excluded.
+        if (bounds.isEmpty() && hasExcludedGeometry) {
+            bounds.setFromObject(object, true);
+        }
+
+        return bounds;
+    }
+
+    /**
      * Update environment (reference urdf-loaders' _updateEnvironment)
      * Auto-adjust ground position to robot lowest point, and update camera focus
      * @param {boolean} fitCamera - Whether to auto-adjust camera view (default false)
@@ -338,8 +387,7 @@ export class SceneManager {
         model.threeObject.updateMatrixWorld(true);
 
         // Directly calculate entire model's bounding box in scene global coordinate system
-        const bboxGlobal = new THREE.Box3();
-        bboxGlobal.setFromObject(model.threeObject, true);
+        const bboxGlobal = this.getModelBoundingBox(model.threeObject);
 
         if (bboxGlobal.isEmpty()) {
             return;

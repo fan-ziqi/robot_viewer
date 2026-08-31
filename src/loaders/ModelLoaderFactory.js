@@ -22,9 +22,9 @@ export class ModelLoaderFactory {
             case 'xacro':
                 return 'xacro';
             case 'xml':
-                // XML files are MJCF format, verify if it's a robot file by content
+                // XML files are MJCF format, verify the document by content
                 if (content) {
-                    // Verify if it's a valid robot MJCF file (has joints or actuators)
+                    // Verify if it's a valid MJCF model or scene
                     if (this.isValidRobotMJCF(content)) {
                         return 'mjcf';
                     } else {
@@ -60,12 +60,12 @@ export class ModelLoaderFactory {
             return false;
         }
 
-        // XML files are MJCF format, verify if it's a robot file (not a scene file)
+        // XML files are MJCF format, including standalone scenes.
         return this.isValidRobotMJCF(cleanContent);
     }
 
     /**
-     * Verify if MJCF file is a robot description file (not a scene file)
+     * Verify if XML contains a complete MJCF model or scene
      * @param {string} content - MJCF file content
      * @returns {boolean} Whether it's a robot MJCF file
      */
@@ -79,17 +79,21 @@ export class ModelLoaderFactory {
             return false;
         }
 
-        // Core characteristic of robot files: must have joints or actuators
-        const hasJoints = content.includes('<joint');
-        const hasActuators = content.includes('<actuator');
+        // A scene can be a valid MJCF document without joints/actuators (for
+        // example, microduck's scene.xml includes the robot and adds a floor).
+        // Only reject XML fragments such as sensors.xml and additional.xml;
+        // those do not have a worldbody/include and cannot be displayed alone.
+        const hasWorldbody = /<worldbody\b/i.test(content);
+        const hasInclude = /<include\b/i.test(content);
+        const hasJoints = /<joint\b/i.test(content);
+        const hasActuators = /<actuator\b/i.test(content);
 
-        // If has joint or actuator, it's a robot file
-        if (hasJoints || hasActuators) {
+        if (hasWorldbody || hasInclude || hasJoints || hasActuators) {
             return true;
         }
 
-        // If neither joint nor actuator, not a robot file
-        // MJCF file without joints or actuators is considered a scene file
+        // No model/scene sections means this is an included XML fragment, not
+        // a standalone file that the viewer can load.
         return false;
     }
 

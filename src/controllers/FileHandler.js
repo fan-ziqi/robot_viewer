@@ -108,7 +108,7 @@ export class FileHandler {
                 if (loadableFiles.length > 0) {
                     this.availableModels = loadableFiles;
                     this.onFilesLoaded?.(loadableFiles);
-                    await this.loadFileOrMesh(loadableFiles[0]);
+                    await this.loadFileOrMesh(this.selectInitialModel(loadableFiles));
                 }
             }
         }
@@ -145,7 +145,7 @@ export class FileHandler {
         this.onFilesLoaded?.(loadableFiles);
 
         if (loadableFiles.length > 0) {
-            await this.loadFileOrMesh(loadableFiles[0]);
+            await this.loadFileOrMesh(this.selectInitialModel(loadableFiles));
         }
     }
 
@@ -269,6 +269,39 @@ export class FileHandler {
         } else if (fileInfo.category === 'mesh') {
             await this.loadMeshAsModel(fileInfo.file, fileInfo.name);
         }
+    }
+
+    /**
+     * Pick the model to open when a folder contains multiple MJCF files.
+     * Prefer the canonical scene/model over helper objects and specialised
+     * variants (ball, backlash, rollers, etc.).
+     */
+    selectInitialModel(loadableFiles) {
+        if (!loadableFiles || loadableFiles.length === 0) return null;
+
+        const models = loadableFiles.filter(fileInfo => fileInfo.category === 'model');
+        if (models.length === 0) return loadableFiles[0];
+
+        const basename = fileInfo => (fileInfo.name || '').split(/[\\/]/).pop().toLowerCase();
+        const exactPreference = [
+            'scene.xml',
+            'robot_allcollisions.xml',
+            'robot.xml',
+            'robot_walk.xml'
+        ];
+
+        for (const preferredName of exactPreference) {
+            const preferred = models.find(fileInfo => basename(fileInfo) === preferredName);
+            if (preferred) return preferred;
+        }
+
+        const canonicalRobot = models.find(fileInfo => {
+            const name = basename(fileInfo);
+            return /(^|[_-])robot([_.-]|$)/i.test(name) &&
+                !/(ball|backlash|roller|walk)/i.test(name);
+        });
+
+        return canonicalRobot || models[0];
     }
 
     /**
@@ -552,4 +585,3 @@ export class FileHandler {
         return this.currentModelFile;
     }
 }
-

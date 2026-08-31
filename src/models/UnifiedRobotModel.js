@@ -82,15 +82,17 @@ export class CollisionGeometry {
  */
 export class GeometryType {
     constructor(type) {
-        this.type = type; // 'box' | 'sphere' | 'cylinder' | 'mesh'
+        this.type = type; // 'plane' | 'box' | 'sphere' | 'cylinder' | 'capsule' | 'mesh'
         this.size = null; // Size parameters (varies by type)
         this.filename = null; // Mesh file path (if mesh type)
+        this.infinite = false; // Infinite primitives should not define camera framing bounds
     }
 
     clone() {
         const cloned = new GeometryType(this.type);
         cloned.size = this.size ? { ...this.size } : null;
         cloned.filename = this.filename;
+        cloned.infinite = this.infinite;
         return cloned;
     }
 }
@@ -178,4 +180,3 @@ export class Constraint {
         this.userData = {};
     }
 }
-

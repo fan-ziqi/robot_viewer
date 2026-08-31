@@ -183,6 +183,7 @@ export class CoordinateAxesManager {
         const axesSize = Math.max(0.03, Math.min(linkSize * 0.25, 0.5));
         const axesGroup = new THREE.Group();
         axesGroup.name = `${linkName}_axes`;
+        axesGroup.userData.excludeFromBounds = true;
 
         // Create three axes, thickness proportional to length
         const axisRadius = Math.max(0.001, axesSize * 0.015); // 1.5% of length, minimum 1mm
@@ -543,4 +544,3 @@ export class CoordinateAxesManager {
         this.clearAllJointAxes();
     }
 }
-

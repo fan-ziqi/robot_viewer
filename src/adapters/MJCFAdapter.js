@@ -5,6 +5,7 @@
 import { UnifiedRobotModel, Link, Joint, JointLimits, VisualGeometry, CollisionGeometry, InertialProperties, GeometryType, Constraint } from '../models/UnifiedRobotModel.js';
 import * as THREE from 'three';
 import { loadMeshFile, ensureMeshHasPhongMaterial, getLoaders } from '../utils/MeshLoader.js';
+import { cleanFilePath, resolveFileFromMap } from '../utils/FileUtils.js';
 
 export class MJCFAdapter {
     /**
@@ -15,7 +16,7 @@ export class MJCFAdapter {
      * @param {string} basePath - Base path for resolving relative paths
      * @returns {Promise<string>} Processed XML content
      */
-    static async processIncludes(xmlContent, fileMap = null, basePath = null) {
+    static async processIncludes(xmlContent, fileMap = null, basePath = null, includeStack = new Set()) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(xmlContent, 'text/xml');
 
@@ -27,8 +28,10 @@ export class MJCFAdapter {
             return xmlContent;
         }
 
-        // Find all include elements
-        const includes = doc.querySelectorAll('include');
+        // Find all include elements.  MJCF includes are textual includes, so an
+        // included file may itself contain more includes (and it may be a
+        // fragment such as sensors.xml rather than a complete <mujoco> file).
+        const includes = Array.from(doc.querySelectorAll('include'));
 
         if (includes.length === 0) {
             return xmlContent;
@@ -38,7 +41,7 @@ export class MJCFAdapter {
 
         // Process each include tag
         for (const includeEl of includes) {
-            const filePath = includeEl.getAttribute('file');
+            const filePath = includeEl.getAttribute('file')?.trim();
 
             if (!filePath) {
                 console.warn('Include tag missing file attribute');
@@ -46,53 +49,67 @@ export class MJCFAdapter {
                 continue;
             }
 
-            // Try to find the included file in fileMap
-            let includedContent = null;
-
-            if (fileMap) {
-                // Try different path variations
-                const pathVariations = [
-                    filePath,
-                    basePath ? basePath + '/' + filePath : filePath,
-                    filePath.startsWith('/') ? filePath : '/' + filePath
-                ];
-
-                for (const path of pathVariations) {
-                    // Try exact match first
-                    if (fileMap.has(path)) {
-                        const file = fileMap.get(path);
-                        try {
-                            includedContent = await file.text();
-                            console.log(`Found included file: ${path}`);
-                            break;
-                        } catch (e) {
-                            console.warn(`Failed to read included file ${path}:`, e);
-                        }
-                    }
-
-                    // Try case-insensitive match
-                    for (const [key, value] of fileMap) {
-                        if (key.toLowerCase() === path.toLowerCase()) {
-                            try {
-                                includedContent = await value.text();
-                                console.log(`Found included file (case-insensitive): ${key}`);
-                                break;
-                            } catch (e) {
-                                console.warn(`Failed to read included file ${key}:`, e);
-                            }
-                        }
-                    }
-                    if (includedContent) break;
-                }
+            if (!fileMap) {
+                console.warn(`Could not find included file (no file map): ${filePath}`);
+                includeEl.remove();
+                continue;
             }
 
-            if (!includedContent) {
+            // Resolve relative to the including file's directory.  This also
+            // handles dragged folders whose File keys contain a leading slash,
+            // Windows separators, and case differences.
+            const includedFile = resolveFileFromMap(filePath, fileMap, { baseDir: basePath || '' });
+            if (!includedFile) {
                 console.warn(`Could not find included file: ${filePath}`);
                 includeEl.remove();
                 continue;
             }
 
-            // Parse the included content
+            // Find the map key for the included file so nested includes resolve
+            // relative to the actual file location, not just the parent model.
+            let includedKey = null;
+            for (const [key, value] of fileMap.entries()) {
+                if (value === includedFile) {
+                    includedKey = key;
+                    break;
+                }
+            }
+            const includedPath = cleanFilePath(
+                includedKey || ((basePath ? `${basePath}/` : '') + filePath)
+            );
+            const includedDir = includedPath.includes('/')
+                ? includedPath.slice(0, includedPath.lastIndexOf('/'))
+                : '';
+
+            // Prevent an accidentally cyclic include from recursing forever.
+            const cycleKey = cleanFilePath(includedPath).toLowerCase();
+            if (includeStack.has(cycleKey)) {
+                console.warn(`Skipping cyclic MJCF include: ${filePath}`);
+                includeEl.remove();
+                continue;
+            }
+
+            let includedContent;
+            try {
+                includedContent = await includedFile.text();
+            } catch (e) {
+                console.warn(`Failed to read included file ${filePath}:`, e);
+                includeEl.remove();
+                continue;
+            }
+
+            // Process nested includes before importing this file's nodes.
+            const nestedStack = new Set(includeStack);
+            nestedStack.add(cycleKey);
+            includedContent = await this.processIncludes(
+                includedContent,
+                fileMap,
+                includedDir,
+                nestedStack
+            );
+
+            // Parse the included content.  MuJoCo accepts both complete
+            // <mujoco> files and XML fragments for include files.
             const includedDoc = parser.parseFromString(includedContent, 'text/xml');
             const includedParseError = includedDoc.querySelector('parsererror');
 
@@ -102,24 +119,22 @@ export class MJCFAdapter {
                 continue;
             }
 
-            // Get the mujoco root element from included file
-            const includedRoot = includedDoc.querySelector('mujoco');
+            // A complete MJCF contributes its children; a fragment contributes
+            // its document element itself (e.g. <sensor> or <default>).
+            const includedRoot = includedDoc.documentElement;
+            const childNodes = includedRoot?.tagName?.toLowerCase() === 'mujoco'
+                ? Array.from(includedRoot.childNodes)
+                : includedRoot ? [includedRoot] : [];
 
-            if (!includedRoot) {
-                console.warn(`Included file ${filePath} has no mujoco root element`);
+            if (childNodes.length === 0) {
+                console.warn(`Included file ${filePath} has no XML elements`);
                 includeEl.remove();
                 continue;
             }
 
-            // Move all child elements from included mujoco to current document
-            // Insert them before the include element
-            const childNodes = Array.from(includedRoot.childNodes);
-
             for (const child of childNodes) {
                 // Skip text nodes and comment nodes
-                if (child.nodeType === Node.TEXT_NODE ||
-                    (child.nodeType === Node.COMMENT_NODE) ||
-                    (child.nodeType === Node.PROCESSING_INSTRUCTION_NODE)) {
+                if (child.nodeType !== 1) {
                     continue;
                 }
 
@@ -142,6 +157,35 @@ export class MJCFAdapter {
     }
 
     /**
+     * Merge repeated top-level MJCF sections created by textual includes.
+     * A scene commonly includes a robot that has its own <asset>/<worldbody>,
+     * then adds another <asset>/<worldbody> for the floor and lighting.  DOM
+     * querySelector() only returns the first section, which silently drops the
+     * latter content.  MuJoCo treats include as text, so combining sections is
+     * the faithful representation for the viewer.
+     */
+    static mergeTopLevelSections(doc) {
+        const root = doc?.documentElement;
+        if (!root) return;
+
+        const mergeable = ['asset', 'worldbody', 'sensor', 'actuator', 'equality', 'contact', 'tendon', 'keyframe'];
+        for (const tagName of mergeable) {
+            const sections = Array.from(root.children).filter(
+                child => child.tagName?.toLowerCase() === tagName
+            );
+            if (sections.length < 2) continue;
+
+            const primary = sections[0];
+            for (const section of sections.slice(1)) {
+                while (section.firstChild) {
+                    primary.appendChild(section.firstChild);
+                }
+                section.remove();
+            }
+        }
+    }
+
+    /**
      * Parse MJCF XML content and convert to unified model
      * @param {string} xmlContent - MJCF XML content
      * @param {Map} fileMap - File map (optional), for loading mesh files
@@ -161,6 +205,11 @@ export class MJCFAdapter {
             throw new Error('MJCF XML parsing failed: ' + parseError.textContent);
         }
 
+        // Includes are textual in MJCF.  Normalize duplicate top-level
+        // sections before parsing so included robot content and scene content
+        // are both retained.
+        this.mergeTopLevelSections(doc);
+
         const model = new UnifiedRobotModel();
         model.name = 'mujoco_model';
 
@@ -170,7 +219,7 @@ export class MJCFAdapter {
 
         // Parse mesh definitions in asset tags (build mesh name to file path mapping)
         // Pass classDefaults and rootDefaults to inherit mesh scale
-        const meshMap = this.parseAssets(doc, classDefaults, rootDefaults);
+        const meshMap = this.parseAssets(doc, classDefaults, rootDefaults, basePath);
 
         // Parse material definitions in material tags
         const materialMap = this.parseMaterials(doc);
@@ -187,7 +236,7 @@ export class MJCFAdapter {
         if (worldbodyGeoms.length > 0) {
             const worldbodyLink = new Link('worldbody');
             worldbodyLink.userData.isWorldbody = true;
-            const seenMeshes = new Set();
+            const seenVisualInstances = new Set();
 
             worldbodyGeoms.forEach((geomEl, geomIndex) => {
                 // Get inherited properties from default class
@@ -200,6 +249,7 @@ export class MJCFAdapter {
                 const geomName = (geomEl.getAttribute('name') || '').toLowerCase();
                 const hasRgba = geomEl.hasAttribute('rgba') || inheritedProps.rgba !== null;
                 const meshRef = geomEl.getAttribute('mesh');
+                const meshInstanceKey = meshRef ? this.getGeomInstanceKey(geomEl, meshRef) : null;
                 
                 // Use inherited contype/conaffinity if not explicitly defined
                 const contype = geomEl.getAttribute('contype');
@@ -215,7 +265,20 @@ export class MJCFAdapter {
                 // Determine if collision or visual (same logic as in parseBodies)
                 let isCollisionGeom = false;
                 if (!meshRef) {
-                    isCollisionGeom = true;
+                    // Primitive geoms can be visual too (e.g. the orange ball
+                    // uses a sphere with rgba).  Only treat an unannotated
+                    // primitive as collision; honor the same visual markers
+                    // used for mesh geoms.
+                    if (contypeNum === 0 && conaffinityNum === 0) {
+                        isCollisionGeom = false;
+                    } else if (groupNum === 3 || geomName.includes('collision')) {
+                        isCollisionGeom = true;
+                    } else if (groupNum === 1 || groupNum === 2 ||
+                               (densityNum === 0 && groupNum === 1) || hasRgba) {
+                        isCollisionGeom = false;
+                    } else {
+                        isCollisionGeom = true;
+                    }
                 } else {
                     if (contypeNum === 0 && conaffinityNum === 0) {
                         isCollisionGeom = false;
@@ -227,7 +290,7 @@ export class MJCFAdapter {
                         isCollisionGeom = false;
                     } else if (geomName.includes('collision')) {
                         isCollisionGeom = true;
-                    } else if (seenMeshes.has(meshRef)) {
+                    } else if (seenVisualInstances.has(meshInstanceKey)) {
                         if (hasRgba || (contypeNum === 0 && conaffinityNum === 0)) {
                             return; // Skip duplicate visual
                         } else {
@@ -242,7 +305,7 @@ export class MJCFAdapter {
                     }
                 }
 
-                const geom = this.parseGeom(geomEl, meshMap);
+                const geom = this.parseGeom(geomEl, meshMap, inheritedProps);
                 if (geom) {
                     if (isCollisionGeom) {
                         const collision = new CollisionGeometry();
@@ -252,7 +315,7 @@ export class MJCFAdapter {
                         worldbodyLink.collisions.push(collision);
                     } else {
                         if (meshRef) {
-                            seenMeshes.add(meshRef);
+                            seenVisualInstances.add(meshInstanceKey);
                         }
                         const visual = new VisualGeometry();
                         visual.geometry = geom;
@@ -296,7 +359,12 @@ export class MJCFAdapter {
 
         // Parse all bodies (links), pass meshMap, materialMap, classDefaults and rootDefaults
         const bodyMap = new Map();
-        this.parseBodies(worldbody, null, bodyMap, model, null, meshMap, null, materialMap, classDefaults, rootDefaults);
+        // When worldbody itself owns renderable geoms (typically a scene
+        // floor), keep top-level bodies structurally below that link. This
+        // prevents them from being built once through their free joint and a
+        // second time as independent roots.
+        const topLevelParent = model.links.has('worldbody') ? 'worldbody' : null;
+        this.parseBodies(worldbody, topLevelParent, bodyMap, model, null, meshMap, null, materialMap, classDefaults, rootDefaults);
 
         // Parse all joints
         this.parseJoints(worldbody, bodyMap, model, null, classDefaults);
@@ -331,15 +399,22 @@ export class MJCFAdapter {
      * @param {Document} doc - XML document
      * @param {Map} classDefaults - Class default properties map (optional)
      * @param {object} rootDefaults - Root default properties (optional)
+     * @param {string} basePath - Directory containing the MJCF document (optional)
      * @returns {Map<string, object>} Mapping from mesh names to mesh data
      * Mesh data can be: { type: 'file', path: string, scale: [x,y,z] } or { type: 'vertex', vertices: Float32Array, scale: [x,y,z] }
      */
-    static parseAssets(doc, classDefaults = null, rootDefaults = null) {
+    static parseAssets(doc, classDefaults = null, rootDefaults = null, basePath = null) {
         const meshMap = new Map();
         const asset = doc.querySelector('asset');
         if (!asset) {
             return meshMap;
         }
+
+        // MJCF mesh files are resolved relative to compiler.meshdir, which is
+        // itself relative to the XML document. Keeping that directory in the
+        // asset path is essential when a dragged package contains duplicate
+        // basenames (go2w has both meshes/calf.stl and mjcf/assets/calf.stl).
+        const meshDir = doc.querySelector('compiler')?.getAttribute('meshdir')?.trim() || '';
 
         const meshes = asset.querySelectorAll('mesh');
         meshes.forEach((meshEl, index) => {
@@ -398,7 +473,7 @@ export class MJCFAdapter {
 
                 meshMap.set(name, {
                     type: 'file',
-                    path: file,
+                    path: this.resolveAssetFilePath(file, basePath, meshDir),
                     scale: scaleVec
                 });
             } else {
@@ -408,6 +483,26 @@ export class MJCFAdapter {
         });
 
         return meshMap;
+    }
+
+    /**
+     * Resolve an MJCF asset path using compiler directory semantics.
+     */
+    static resolveAssetFilePath(filePath, basePath = null, assetDir = '') {
+        const isAnchored = path => /^(?:[a-zA-Z]:[\\/]|\/|[a-zA-Z][a-zA-Z0-9+.-]*:)/.test(path);
+
+        if (isAnchored(filePath)) {
+            return cleanFilePath(filePath);
+        }
+
+        let parentPath = basePath || '';
+        if (assetDir) {
+            parentPath = isAnchored(assetDir)
+                ? assetDir
+                : `${parentPath ? `${parentPath}/` : ''}${assetDir}`;
+        }
+
+        return cleanFilePath(`${parentPath ? `${parentPath}/` : ''}${filePath}`);
     }
 
     /**
@@ -615,7 +710,7 @@ export class MJCFAdapter {
      * @param {object} rootDefaults - Root default properties
      * @returns {object} Inherited properties object
      */
-    static getGeomInheritedProperties(geomEl, classDefaults, rootDefaults) {
+    static getGeomInheritedProperties(geomEl, classDefaults, rootDefaults, fallbackClass = null) {
         const inherited = {
             contype: null,
             conaffinity: null,
@@ -632,7 +727,11 @@ export class MJCFAdapter {
         }
 
         // Then apply class defaults (if geom has class attribute)
-        const className = geomEl.getAttribute('class');
+        // A body's childclass applies to all descendants unless a geom
+        // explicitly overrides it.  The previous implementation only looked
+        // at geom@class, so perfectly valid MJCF that relies on childclass was
+        // parsed with the wrong geometry type/collision flags.
+        const className = geomEl.getAttribute('class') || fallbackClass;
         if (className && classDefaults && classDefaults.has(className)) {
             const classDefault = classDefaults.get(className);
             if (classDefault.geom) {
@@ -644,9 +743,30 @@ export class MJCFAdapter {
     }
 
     /**
+     * Identify one placed mesh instance, not merely one mesh asset. MJCF often
+     * reuses the same STL several times in a body at different transforms
+     * (Microduck does this throughout its neck, legs and bearing supports).
+     * Only a second geom with the same mesh and the same pose is a duplicate.
+     */
+    static getGeomInstanceKey(geomEl, meshRef) {
+        const origin = this.parseOrigin(geomEl);
+        const values = [...origin.xyz, ...origin.rpy].map(value => {
+            const normalized = Math.abs(value) < 1e-12 ? 0 : value;
+            return Number(normalized.toPrecision(12));
+        });
+        const fromto = (geomEl.getAttribute('fromto') || '')
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean)
+            .map(value => Number(value))
+            .join(',');
+        return `${meshRef}|${values.join(',')}|${fromto}`;
+    }
+
+    /**
      * Recursively parse body elements, record parent-child relationships
      */
-    static parseBodies(element, parentName, bodyMap, model, parentLinkRef = null, meshMap = null, stats = null, materialMap = null, classDefaults = null, rootDefaults = null) {
+    static parseBodies(element, parentName, bodyMap, model, parentLinkRef = null, meshMap = null, stats = null, materialMap = null, classDefaults = null, rootDefaults = null, inheritedChildClass = null) {
         // Initialize stats object (only on root call)
         if (!stats) {
             stats = { totalGeoms: 0, skippedCollisionGeoms: 0, visualGeoms: 0 };
@@ -657,6 +777,10 @@ export class MJCFAdapter {
         bodies.forEach(bodyEl => {
             const linkName = bodyEl.getAttribute('name') || `body_${bodyMap.size}`;
             const link = new Link(linkName);
+
+            // childclass is inherited by nested bodies.  A child body's own
+            // childclass replaces the inherited value for its descendants.
+            const childClass = bodyEl.getAttribute('childclass') || inheritedChildClass;
 
             // Record parent link relationship (for building hierarchy later)
             if (parentName) {
@@ -669,13 +793,13 @@ export class MJCFAdapter {
 
             // Parse geometries (geom)
             const geoms = bodyEl.querySelectorAll(':scope > geom');
-            const seenMeshes = new Set(); // Track added meshes to avoid duplicates
+            const seenVisualInstances = new Set(); // Track exact placed visuals, not reusable mesh assets
 
             geoms.forEach((geomEl, geomIndex) => {
                 stats.totalGeoms++;
 
                 // Get inherited properties from default class
-                const inheritedProps = this.getGeomInheritedProperties(geomEl, classDefaults, rootDefaults);
+                const inheritedProps = this.getGeomInheritedProperties(geomEl, classDefaults, rootDefaults, childClass);
 
                 const group = geomEl.getAttribute('group');
                 // Use inherited group if not explicitly defined
@@ -684,6 +808,7 @@ export class MJCFAdapter {
                 const geomName = (geomEl.getAttribute('name') || '').toLowerCase();
                 const hasRgba = geomEl.hasAttribute('rgba') || inheritedProps.rgba !== null;
                 const meshRef = geomEl.getAttribute('mesh');
+                const meshInstanceKey = meshRef ? this.getGeomInstanceKey(geomEl, meshRef) : null;
                 // Use inherited type if not explicitly defined
                 const geomType = geomEl.getAttribute('type') || inheritedProps.type || (meshRef ? 'mesh' : 'box');
 
@@ -705,8 +830,19 @@ export class MJCFAdapter {
                 // [Key Strategy]: Distinguish visual and collision geoms
                 // Basic geometries (box, cylinder, sphere) are usually simplified shapes for collision
                 if (!meshRef) {
-                    // No mesh reference, basic geometry, treat as collision
-                    isCollisionGeom = true;
+                    // Primitive geoms can be visual too (e.g. spheres with an
+                    // rgba color).  Honor the same visual markers as meshes;
+                    // an otherwise unannotated primitive remains collision.
+                    if (contypeNum === 0 && conaffinityNum === 0) {
+                        isCollisionGeom = false;
+                    } else if (groupNum === 3 || geomName.includes('collision')) {
+                        isCollisionGeom = true;
+                    } else if (groupNum === 1 || groupNum === 2 ||
+                               (densityNum === 0 && groupNum === 1) || hasRgba) {
+                        isCollisionGeom = false;
+                    } else {
+                        isCollisionGeom = true;
+                    }
                 } else {
                     // Has mesh reference, check if should be collision
 
@@ -726,8 +862,11 @@ export class MJCFAdapter {
                     else if (geomName.includes('collision')) {
                         isCollisionGeom = true;
                     }
-                    // Strategy 4: If same mesh already added as visual
-                    else if (seenMeshes.has(meshRef)) {
+                    // Strategy 4: If this exact placed mesh was already added
+                    // as visual, the current geom is its duplicate collision
+                    // representation. Reuse of the asset at a different pose
+                    // remains a separate visible part.
+                    else if (seenVisualInstances.has(meshInstanceKey)) {
                         // If current geom also has visual markers (rgba or contype="0"), skip duplicate visual
                         if (hasRgba || (contypeNum === 0 && conaffinityNum === 0)) {
                             stats.skippedCollisionGeoms++;
@@ -754,7 +893,7 @@ export class MJCFAdapter {
                     }
                 }
 
-                const geom = this.parseGeom(geomEl, meshMap);
+                const geom = this.parseGeom(geomEl, meshMap, inheritedProps);
                 if (geom) {
                     if (isCollisionGeom) {
                         // Add to collision list
@@ -769,7 +908,7 @@ export class MJCFAdapter {
 
                         // Record added mesh
                         if (meshRef) {
-                            seenMeshes.add(meshRef);
+                            seenVisualInstances.add(meshInstanceKey);
                         }
 
                         const visual = new VisualGeometry();
@@ -834,7 +973,7 @@ export class MJCFAdapter {
             bodyMap.set(linkName, { link, element: bodyEl, parentName });
 
             // Recursively parse child bodies
-            this.parseBodies(bodyEl, linkName, bodyMap, model, link, meshMap, stats, materialMap, classDefaults, rootDefaults);
+            this.parseBodies(bodyEl, linkName, bodyMap, model, link, meshMap, stats, materialMap, classDefaults, rootDefaults, childClass);
         });
     }
 
@@ -843,10 +982,10 @@ export class MJCFAdapter {
      * @param {Element} geomEl - geom element
      * @param {Map} meshMap - Mapping from mesh names to file paths
      */
-    static parseGeom(geomEl, meshMap = null) {
+    static parseGeom(geomEl, meshMap = null, inheritedProps = null) {
         // In MJCF, if geom has mesh attribute, type should be mesh
         const meshAttr = geomEl.getAttribute('mesh');
-        let type = geomEl.getAttribute('type');
+        let type = geomEl.getAttribute('type') || inheritedProps?.type;
 
         // If has mesh attribute but no explicit type declaration, auto-set to mesh
         if (meshAttr && !type) {
@@ -861,6 +1000,21 @@ export class MJCFAdapter {
         const geometry = new GeometryType(type);
 
         switch (type) {
+            case 'plane': {
+                // MuJoCo planes with size 0 are infinite.  Three.js needs a
+                // finite renderable geometry, so use a generous display mesh
+                // while marking it as unbounded for camera framing. Otherwise
+                // an included scene floor makes a small robot look missing.
+                const size = geomEl.getAttribute('size');
+                const sizes = size ? size.trim().split(/\s+/).map(parseFloat) : [];
+                geometry.infinite = !(sizes[0] > 0 && sizes[1] > 0);
+                geometry.size = {
+                    width: sizes[0] > 0 ? sizes[0] * 2 : 100,
+                    height: sizes[1] > 0 ? sizes[1] * 2 : 100
+                };
+                break;
+            }
+
             case 'box':
                 const size = geomEl.getAttribute('size');
                 if (size) {
@@ -965,14 +1119,14 @@ export class MJCFAdapter {
         // Check pos attribute
         const pos = element.getAttribute('pos');
         if (pos) {
-            const xyz = pos.split(' ').map(parseFloat);
+            const xyz = pos.trim().split(/\s+/).map(parseFloat);
             origin.xyz = [xyz[0] || 0, xyz[1] || 0, xyz[2] || 0];
         }
 
         // Check quat attribute (quaternion, needs to be converted to rpy)
         const quat = element.getAttribute('quat');
         if (quat) {
-            const q = quat.split(' ').map(parseFloat);
+            const q = quat.trim().split(/\s+/).map(parseFloat);
             // MJCF uses wxyz order
             const qw = q[0], qx = q[1], qy = q[2], qz = q[3];
 
@@ -985,12 +1139,36 @@ export class MJCFAdapter {
             // Check euler attribute
             const euler = element.getAttribute('euler');
             if (euler) {
-                const rpy = euler.split(' ').map(parseFloat);
+                const rpy = euler.trim().split(/\s+/).map(parseFloat);
                 origin.rpy = [rpy[0] || 0, rpy[1] || 0, rpy[2] || 0];
             }
         }
 
         return origin;
+    }
+
+    /**
+     * Convert a parsed MJCF origin to a Three.js quaternion without routing an
+     * explicit quaternion through Euler angles. The latter is ambiguous at
+     * the 90/180 degree poses used extensively by Microduck.
+     */
+    static getOriginQuaternion(origin) {
+        if (origin?.quat) {
+            const { w, x, y, z } = origin.quat;
+            return new THREE.Quaternion(x, y, z, w).normalize();
+        }
+
+        const rpy = origin?.rpy || [0, 0, 0];
+        return new THREE.Quaternion().setFromEuler(
+            new THREE.Euler(rpy[0], rpy[1], rpy[2], 'ZYX')
+        );
+    }
+
+    /** Apply a parsed MJCF pos/quat (or Euler fallback) to an Object3D. */
+    static applyOriginTransform(object, origin) {
+        const xyz = origin?.xyz || [0, 0, 0];
+        object.position.set(...xyz);
+        object.quaternion.copy(this.getOriginQuaternion(origin));
     }
 
     /**
@@ -1248,7 +1426,7 @@ export class MJCFAdapter {
     /**
      * Parse joint element
      */
-    static parseJoints(element, bodyMap, model, parentBodyName = null, defaultsMap = null) {
+    static parseJoints(element, bodyMap, model, parentBodyName = null, defaultsMap = null, inheritedChildClass = null) {
         const joints = element.querySelectorAll(':scope > joint');
 
         joints.forEach(jointEl => {
@@ -1301,7 +1479,7 @@ export class MJCFAdapter {
 
                 // If joint has no class, check parent body's childclass
                 if (!className) {
-                    className = currentBody.getAttribute('childclass');
+                    className = currentBody.getAttribute('childclass') || inheritedChildClass;
                 }
 
                 if (className && defaultsMap) {
@@ -1336,7 +1514,7 @@ export class MJCFAdapter {
 
                 // If joint has no class, check parent body's childclass
                 if (!className) {
-                    className = currentBody.getAttribute('childclass');
+                    className = currentBody.getAttribute('childclass') || inheritedChildClass;
                 }
 
                 if (className && defaultsMap) {
@@ -1398,11 +1576,12 @@ export class MJCFAdapter {
         // Find direct child bodies (use :scope > body to ensure only direct children are selected)
         const bodies = element.querySelectorAll(':scope > body');
         const currentElementName = element.getAttribute('name'); // Name of current body or worldbody
+        const childClass = element.getAttribute('childclass') || inheritedChildClass;
 
         bodies.forEach(body => {
             // Child body's parent body name is current element's name
             // Note: worldbody has no name attribute, so first level body's parent is null or 'worldbody'
-            this.parseJoints(body, bodyMap, model, currentElementName || 'worldbody', defaultsMap);
+            this.parseJoints(body, bodyMap, model, currentElementName || 'worldbody', defaultsMap, childClass);
         });
     }
 
@@ -1583,17 +1762,15 @@ export class MJCFAdapter {
                     if (visual.geometry && visual.geometry.fromto) {
                         // Use fromto center position
                         mesh.position.set(...visual.geometry.fromto.center);
-                        // Apply fromto rotation plus any explicit rotation
+                        // Apply fromto rotation plus any explicit origin
+                        // rotation using quaternion composition.
                         const fromtoRpy = visual.geometry.fromto.rpy;
-                        mesh.rotation.set(
-                            fromtoRpy[0] + visual.origin.rpy[0],
-                            fromtoRpy[1] + visual.origin.rpy[1],
-                            fromtoRpy[2] + visual.origin.rpy[2],
-                            'ZYX'
+                        mesh.quaternion.setFromEuler(
+                            new THREE.Euler(fromtoRpy[0], fromtoRpy[1], fromtoRpy[2], 'ZYX')
                         );
+                        mesh.quaternion.multiply(this.getOriginQuaternion(visual.origin));
                     } else {
-                        mesh.position.set(...visual.origin.xyz, 'ZYX');
-                        mesh.rotation.set(...visual.origin.rpy, 'ZYX');
+                        this.applyOriginTransform(mesh, visual.origin);
                     }
                     mesh.name = visual.name || 'visual';
 
@@ -1712,17 +1889,15 @@ export class MJCFAdapter {
                     if (collision.geometry && collision.geometry.fromto) {
                         // Use fromto center position
                         mesh.position.set(...collision.geometry.fromto.center);
-                        // Apply fromto rotation plus any explicit rotation
+                        // Apply fromto rotation plus any explicit origin
+                        // rotation using quaternion composition.
                         const fromtoRpy = collision.geometry.fromto.rpy;
-                        mesh.rotation.set(
-                            fromtoRpy[0] + collision.origin.rpy[0],
-                            fromtoRpy[1] + collision.origin.rpy[1],
-                            fromtoRpy[2] + collision.origin.rpy[2],
-                            'ZYX'
+                        mesh.quaternion.setFromEuler(
+                            new THREE.Euler(fromtoRpy[0], fromtoRpy[1], fromtoRpy[2], 'ZYX')
                         );
+                        mesh.quaternion.multiply(this.getOriginQuaternion(collision.origin));
                     } else {
-                        mesh.position.set(...collision.origin.xyz);
-                        mesh.rotation.set(...collision.origin.rpy,'ZYX');
+                        this.applyOriginTransform(mesh, collision.origin);
                     }
                     mesh.name = collision.name || 'collision';
 
@@ -1767,46 +1942,74 @@ export class MJCFAdapter {
                 j => j.parent === linkName && j.child
             );
 
-            // Process child joints and child bodies
+            // Process child joints and child bodies.  MJCF permits multiple
+            // joints on one body (the microduck backlash model adds a passive
+            // joint immediately after every servo joint).  Those joints are a
+            // serial chain, not sibling alternatives.  Nesting their groups
+            // keeps every joint functional and prevents Three.js from
+            // re-parenting the link into only the last group.
+            const jointsByChild = new Map();
             childJoints.forEach(joint => {
-                const childLinkName = joint.child;
-                if (!childLinkName) return;
+                if (!joint.child) return;
+                if (!jointsByChild.has(joint.child)) jointsByChild.set(joint.child, []);
+                jointsByChild.get(joint.child).push(joint);
+            });
 
-                // Get child link's body origin (in MJCF, body.pos defines connection position)
+            jointsByChild.forEach((joints, childLinkName) => {
                 const childLink = model.links.get(childLinkName);
-                const bodyOrigin = childLink.userData.bodyOrigin || { xyz: [0, 0, 0], rpy: [0, 0, 0] };
+                const bodyOrigin = childLink?.userData?.bodyOrigin || { xyz: [0, 0, 0], rpy: [0, 0, 0] };
 
-                // Create joint transformation group
-                const jointGroup = new THREE.Group();
-                jointGroup.name = joint.name || `joint_${childLinkName}`;
-                jointGroup.isURDFJoint = true; // Mark as joint for JointDragControls recognition
-                jointGroup.type = 'URDFJoint'; // Set type
-                jointGroup.jointType = joint.type; // Set joint type
+                // body.pos/body.quat define the child body's nominal frame.
+                // joint.pos is a pivot *inside* that frame; it must not be
+                // added to body.pos or every non-zero joint anchor shifts the
+                // complete child body at q=0.
+                const bodyFrame = new THREE.Group();
+                bodyFrame.name = `${childLinkName}_body_frame`;
+                MJCFAdapter.applyOriginTransform(bodyFrame, bodyOrigin);
+                linkGroup.add(bodyFrame);
 
-                // Store joint axis information (for JointDragControls use)
-                if (joint.axis && joint.axis.xyz) {
-                    const mjcfAxis = joint.axis.xyz;
-                    jointGroup.axis = new THREE.Vector3(mjcfAxis[0], mjcfAxis[1], mjcfAxis[2]).normalize();
-                } else {
-                    // If no axis defined, use default value (0, 1, 0)
-                    jointGroup.axis = new THREE.Vector3(0, 1, 0);
-                }
+                let jointParent = bodyFrame;
 
-                // [Critical] Apply body.pos + joint.pos as jointGroup position
-                // body.pos defines body position relative to parent body (i.e., connection position)
-                // joint.pos defines joint offset in body coordinate system (usually 0)
-                jointGroup.position.set(
-                    bodyOrigin.xyz[0] + joint.origin.xyz[0],
-                    bodyOrigin.xyz[1] + joint.origin.xyz[1],
-                    bodyOrigin.xyz[2] + joint.origin.xyz[2]
-                );
-                jointGroup.rotation.set(...bodyOrigin.rpy, 'ZYX');
+                joints.forEach((joint, jointIndex) => {
+                    const jointGroup = new THREE.Group();
+                    jointGroup.name = joint.name || `joint_${childLinkName}_${jointIndex}`;
+                    jointGroup.isURDFJoint = true;
+                    jointGroup.type = 'URDFJoint';
+                    jointGroup.jointType = joint.type;
 
-                // Recursively build child link
-                buildHierarchy(childLinkName, jointGroup);
+                    // Store joint axis information (for JointDragControls use)
+                    if (joint.axis && joint.axis.xyz) {
+                        const mjcfAxis = joint.axis.xyz;
+                        jointGroup.axis = new THREE.Vector3(mjcfAxis[0], mjcfAxis[1], mjcfAxis[2]).normalize();
+                    } else {
+                        jointGroup.axis = new THREE.Vector3(0, 1, 0);
+                    }
 
-                linkGroup.add(jointGroup);
-                joint.threeObject = jointGroup;
+                    const jointOrigin = joint.origin || { xyz: [0, 0, 0], rpy: [0, 0, 0] };
+                    MJCFAdapter.applyOriginTransform(jointGroup, jointOrigin);
+
+                    jointParent.add(jointGroup);
+                    joint.threeObject = jointGroup;
+
+                    // Return to the body frame after the pivot transform. At
+                    // zero joint value this pair is exactly identity; at a
+                    // non-zero value the body and all descendants rotate or
+                    // slide around the declared MJCF joint anchor.
+                    const inverseOrigin = new THREE.Group();
+                    inverseOrigin.name = `${jointGroup.name}_body_frame`;
+                    const originQuaternion = jointGroup.quaternion.clone();
+                    const inverseQuaternion = originQuaternion.clone().invert();
+                    inverseOrigin.quaternion.copy(inverseQuaternion);
+                    inverseOrigin.position
+                        .set(...jointOrigin.xyz)
+                        .multiplyScalar(-1)
+                        .applyQuaternion(inverseQuaternion);
+                    jointGroup.add(inverseOrigin);
+                    jointParent = inverseOrigin;
+                });
+
+                // Build the child link below the final joint in the chain.
+                buildHierarchy(childLinkName, jointParent);
             });
 
             // Process direct child bodies (find via bodyMap)
@@ -1826,8 +2029,7 @@ export class MJCFAdapter {
 
                         // Create fixed connection group
                         const fixedGroup = new THREE.Group();
-                        fixedGroup.position.set(...childBodyOrigin.xyz);
-                        fixedGroup.rotation.set(...childBodyOrigin.rpy, 'ZYX');
+                        MJCFAdapter.applyOriginTransform(fixedGroup, childBodyOrigin);
 
                         // Recursively build child body and add to fixed group
                         buildHierarchy(childName, fixedGroup);
@@ -1845,8 +2047,7 @@ export class MJCFAdapter {
                 const rootLink = model.links.get(rootName);
                 const rootLinkGroup = linkObjects.get(rootName);
                 if (rootLink.userData.bodyOrigin) {
-                    rootLinkGroup.position.set(...rootLink.userData.bodyOrigin.xyz);
-                    rootLinkGroup.rotation.set(...rootLink.userData.bodyOrigin.rpy, 'ZYX');
+                    MJCFAdapter.applyOriginTransform(rootLinkGroup, rootLink.userData.bodyOrigin);
                 }
                 buildHierarchy(rootName, rootGroup);
             });
@@ -1856,8 +2057,7 @@ export class MJCFAdapter {
             const firstLinkObj = model.links.get(firstLink);
             const firstLinkGroup = linkObjects.get(firstLink);
             if (firstLinkObj.userData.bodyOrigin) {
-                firstLinkGroup.position.set(...firstLinkObj.userData.bodyOrigin.xyz);
-                firstLinkGroup.rotation.set(...firstLinkObj.userData.bodyOrigin.rpy, 'ZYX');
+                MJCFAdapter.applyOriginTransform(firstLinkGroup, firstLinkObj.userData.bodyOrigin);
             }
             buildHierarchy(firstLink, rootGroup);
         }
@@ -1883,6 +2083,17 @@ export class MJCFAdapter {
         let threeGeometry = null;
 
         switch (geometry.type) {
+            case 'plane':
+                if (geometry.size) {
+                    // Three.js PlaneGeometry is already XY-aligned with its
+                    // normal along +Z, matching an MJCF plane.
+                    threeGeometry = new THREE.PlaneGeometry(
+                        geometry.size.width,
+                        geometry.size.height
+                    );
+                }
+                break;
+
             case 'box':
                 if (geometry.size) {
                     threeGeometry = new THREE.BoxGeometry(
@@ -2013,7 +2224,13 @@ export class MJCFAdapter {
         // Save original properties for lighting toggle
         material.userData.originalShininess = 30;
         material.userData.originalSpecular = null; // New material, no original specular
-        return new THREE.Mesh(threeGeometry, material);
+        const mesh = new THREE.Mesh(threeGeometry, material);
+        if (geometry.infinite) {
+            // The finite display stand-in for an infinite MJCF plane must not
+            // dominate model bounds used for auto-fit and axes sizing.
+            mesh.userData.excludeFromBounds = true;
+        }
+        return mesh;
     }
 
     /**
@@ -2089,4 +2306,3 @@ export class MJCFAdapter {
         }
     }
 }
-
