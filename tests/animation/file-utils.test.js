@@ -47,3 +47,55 @@ test('base directory disambiguates duplicate relative includes', () => {
         go2wRobot
     );
 });
+
+test('directory identity separates unrelated files with the same basename', () => {
+    const armCollision = { name: 'base_link.stl', role: 'arm-collision' };
+    const robanVisual = { name: 'base_link.STL', role: 'roban-visual' };
+    const fileMap = new Map([
+        ['/roban_v2/meshes/arm/collision/base_link.stl', armCollision],
+        ['/roban_v2/meshes/roban/base_link.STL', robanVisual]
+    ]);
+
+    assert.equal(
+        resolveFileFromMap(
+            'mecha_description/models/roban_v2/meshes/roban/base_link.STL',
+            fileMap,
+            { baseDir: '/roban_v2/urdf/' }
+        ),
+        robanVisual
+    );
+    assert.equal(
+        resolveFileFromMap(
+            'mecha_description/models/roban_v2/meshes/arm/collision/base_link.stl',
+            fileMap,
+            { baseDir: '/roban_v2/urdf/' }
+        ),
+        armCollision
+    );
+});
+
+test('an equally specific duplicated directory path remains ambiguous', () => {
+    const fileMap = new Map([
+        ['/robots/a/meshes/roban/base_link.STL', { robot: 'a' }],
+        ['/robots/b/meshes/roban/base_link.STL', { robot: 'b' }]
+    ]);
+
+    assert.equal(
+        resolveFileFromMap('meshes/roban/base_link.STL', fileMap),
+        null
+    );
+});
+
+test('a longer directory match wins even when its path casing differs', () => {
+    const intended = { role: 'intended' };
+    const shorterExactCase = { role: 'shorter-exact-case' };
+    const fileMap = new Map([
+        ['/roban_v2/MESHES/roban/base_link.STL', intended],
+        ['/other/roban/base_link.STL', shorterExactCase]
+    ]);
+
+    assert.equal(
+        resolveFileFromMap('models/roban_v2/meshes/roban/base_link.STL', fileMap),
+        intended
+    );
+});

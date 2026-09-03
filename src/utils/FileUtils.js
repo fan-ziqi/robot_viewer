@@ -155,6 +155,68 @@ function getUniqueFileByPredicate(fileMap, predicate) {
     return matchCount === 1 ? matchedFile : null;
 }
 
+function countMatchingPathTail(leftPath, rightPath, caseSensitive) {
+    const normalizeSegment = caseSensitive
+        ? value => value
+        : value => value.toLowerCase();
+    const leftParts = cleanFilePath(leftPath).split('/').filter(Boolean).map(normalizeSegment);
+    const rightParts = cleanFilePath(rightPath).split('/').filter(Boolean).map(normalizeSegment);
+
+    let matched = 0;
+    while (
+        matched < leftParts.length &&
+        matched < rightParts.length &&
+        leftParts[leftParts.length - 1 - matched] === rightParts[rightParts.length - 1 - matched]
+    ) {
+        matched++;
+    }
+
+    return matched;
+}
+
+function findUniqueFileByLongestPathTail(candidates, fileMap) {
+    let bestPathScore = 1; // One segment is only a basename and carries no directory identity.
+    let bestCaseScore = 0;
+    const bestFiles = new Set();
+
+    for (const [key, file] of fileMap.entries()) {
+        let pathScore = 0;
+        let caseScore = 0;
+        for (const candidate of candidates) {
+            pathScore = Math.max(
+                pathScore,
+                countMatchingPathTail(candidate, key, false)
+            );
+            caseScore = Math.max(
+                caseScore,
+                countMatchingPathTail(candidate, key, true)
+            );
+        }
+
+        if (pathScore <= 1) {
+            continue;
+        }
+
+        if (
+            pathScore > bestPathScore ||
+            (pathScore === bestPathScore && caseScore > bestCaseScore)
+        ) {
+            bestPathScore = pathScore;
+            bestCaseScore = caseScore;
+            bestFiles.clear();
+            bestFiles.add(file);
+        } else if (
+            pathScore === bestPathScore &&
+            caseScore === bestCaseScore &&
+            pathScore > 1
+        ) {
+            bestFiles.add(file);
+        }
+    }
+
+    return bestFiles.size === 1 ? bestFiles.values().next().value : null;
+}
+
 /**
  * Resolve a file from a path-keyed map without guessing among duplicate basenames.
  * Exact and normalized path matches are preferred; basename fallback is only used
@@ -216,25 +278,17 @@ export function resolveFileFromMap(path, fileMap, options = {}) {
         return exactCaseInsensitiveMatch;
     }
 
-    // Try suffixes from most to least specific. Checking every candidate in a
-    // single predicate lets a broad fallback such as "meshes/base.dae" make a
-    // package-qualified path such as "go2_description/meshes/base.dae" look
-    // ambiguous when several robot packages share the same mesh basename.
-    const orderedSuffixCandidates = Array.from(lowerCandidates)
-        .filter(Boolean)
-        .sort((a, b) => {
-            const segmentDifference = b.split('/').length - a.split('/').length;
-            return segmentDifference || b.length - a.length;
-        });
-
-    for (const candidate of orderedSuffixCandidates) {
-        const suffixMatch = getUniqueFileByPredicate(fileMap, key => {
-            const normalizedKey = cleanFilePath(key).toLowerCase();
-            return normalizedKey === candidate || normalizedKey.endsWith('/' + candidate);
-        });
-        if (suffixMatch) {
-            return suffixMatch;
-        }
+    // A dragged subtree may omit leading package directories. Preserve file
+    // identity by comparing complete trailing path segments and selecting only
+    // a unique best match. For example, "meshes/roban/base_link.STL" must not
+    // collide with "meshes/arm/collision/base_link.stl" just because their
+    // basenames are equal.
+    const pathTailMatch = findUniqueFileByLongestPathTail(
+        normalizedCandidates,
+        fileMap
+    );
+    if (pathTailMatch) {
+        return pathTailMatch;
     }
 
     const fileName = cleanFilePath(rawPath).split('/').pop()?.toLowerCase();
