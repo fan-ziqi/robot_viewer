@@ -21,7 +21,6 @@ export class SceneManager {
 
         // On-demand rendering flags
         this._dirty = false;
-        this._pendingRender = false;
         this._renderingPaused = false;
 
         // Event system
@@ -107,42 +106,12 @@ export class SceneManager {
         // Window resize - use ResizeObserver to listen for canvas container size changes
         this.setupResizeObserver();
 
-        // Start continuous render loop
-        this.startRenderLoop();
-
-        // Render immediately to show initial scene
+        // The application owns the single animation loop. Mark the initial
+        // scene dirty so its first tick renders it.
         this.redraw();
     }
 
     // ==================== Render Loop ====================
-
-    /**
-     * Start continuous render loop (borrowed from urdf-loaders implementation)
-     */
-    startRenderLoop() {
-        const renderLoop = () => {
-            // Only render when needed (controlled by _dirty flag)
-            if (this._dirty) {
-                this.renderer.render(this.scene, this.camera);
-                this._dirty = false;
-            }
-            this._renderLoopId = requestAnimationFrame(renderLoop);
-        };
-        renderLoop();
-    }
-
-    stopRenderLoop() {
-        if (this._renderLoopId) {
-            cancelAnimationFrame(this._renderLoopId);
-            this._renderLoopId = null;
-        }
-
-        // Clean up ResizeObserver
-        if (this.resizeObserver) {
-            this.resizeObserver.disconnect();
-            this.resizeObserver = null;
-        }
-    }
 
     /**
      * Mark scene as needing re-render (on-demand rendering)
@@ -162,11 +131,22 @@ export class SceneManager {
     render() {
         // If rendering is paused, don't render
         if (this._renderingPaused) {
-            return;
+            return false;
         }
         // Render immediately (for scenes requiring immediate update)
         this.renderer.render(this.scene, this.camera);
         this._dirty = false;
+        return true;
+    }
+
+    /**
+     * Render a frame only when scene state has changed.
+     */
+    renderIfNeeded() {
+        if (!this._dirty) {
+            return false;
+        }
+        return this.render();
     }
 
     // ==================== Model Management ====================

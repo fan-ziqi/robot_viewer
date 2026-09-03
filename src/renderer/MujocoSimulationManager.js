@@ -1277,6 +1277,8 @@ export class MujocoSimulationManager {
         if (this.sceneManager.highlightManager) {
             this.sceneManager.highlightManager.clearHighlight();
         }
+
+        this.sceneManager.redraw();
     }
 
     /**
@@ -1300,6 +1302,8 @@ export class MujocoSimulationManager {
         if (this.sceneManager.dragControls) {
             this.sceneManager.dragControls.enabled = true;
         }
+
+        this.sceneManager.redraw();
     }
 
     /**
@@ -1400,6 +1404,8 @@ export class MujocoSimulationManager {
         this.isLoaded = false;
         this.isSimulating = false;
         this.params.paused = true;
+
+        this.sceneManager.redraw();
     }
 
     /**
@@ -1602,4 +1608,3 @@ export class MujocoSimulationManager {
         return this.isLoaded;
     }
 }
-

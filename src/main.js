@@ -1032,12 +1032,17 @@ class App {
         if (this.sceneManager) {
             this.sceneManager.update();
 
-            // Update MuJoCo simulation
-            if (this.mujocoSimulationManager && this.mujocoSimulationManager.hasScene()) {
+            // A running simulation changes scene transforms every frame. A
+            // paused or absent simulation leaves the scene clean, allowing the
+            // renderer (and discrete GPU) to remain idle.
+            const simulationRunning =
+                this.mujocoSimulationManager?.isSimulationRunning() === true;
+            if (simulationRunning) {
                 this.mujocoSimulationManager.update(performance.now());
+                this.sceneManager.redraw();
             }
 
-            this.sceneManager.render();
+            this.sceneManager.renderIfNeeded();
         }
     }
 }
