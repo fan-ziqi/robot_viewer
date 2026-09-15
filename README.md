@@ -33,6 +33,7 @@
 - **Code Editor**: Built-in CodeMirror editor with syntax highlighting and live preview
 - **Physics Simulation**: Integrated MuJoCo engine for dynamics simulation (MJCF models)
 - **Scene Management**: File tree and scene graph visualization with hierarchical structure
+- **Local Bridge**: Stream joint angles from a local Python/Node.js/C++ service over a loopback WebSocket, so a cloud-hosted viewer can be driven by data that stays on your machine (see [`examples/`](examples/README.md))
 
 ## Getting Started
 

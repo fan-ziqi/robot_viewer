@@ -22,6 +22,7 @@ export const translations = {
         'structure': '结构',
         'edit': '编辑',
         'animation': '动画',
+        'bridge': '连接',
         'help': '帮助',
         'theme': '主题',
         'language': '语言',
@@ -33,6 +34,36 @@ export const translations = {
         'codeEditor': '编辑',
         'animationEditor': '动画编辑器',
         'animationExperimental': '实验功能 · 仍在开发中',
+
+        // 本地连接
+        'bridgeTitle': '本地连接',
+        'bridgeUrl': '服务地址',
+        'bridgeToken': '令牌（可选）',
+        'bridgeConnect': '连接',
+        'bridgeDisconnect': '断开',
+        'bridgeAutoReconnect': '自动重连',
+        'bridgeConnected': '已连接',
+        'bridgeConnecting': '连接中…',
+        'bridgeDisconnected': '未连接',
+        'bridgeError': '连接失败',
+        'bridgeRateIn': '接收',
+        'bridgeRateOut': '应用',
+        'bridgeDropped': '合帧',
+        'bridgeMatched': '已驱动关节',
+        'bridgeUnknown': '模型中不存在',
+        'bridgeUndriven': '未被驱动',
+        'bridgeAwaitingHello': '等待服务端声明关节列表。',
+        'bridgeHelp': '使用帮助',
+        'bridgeHelpStep1': '安装依赖：<code>pip install "websockets&gt;=14"</code>',
+        'bridgeHelpStep2': '把下面的代码存为 <code>bridge.py</code>，运行 <code>python bridge.py</code>',
+        'bridgeHelpStep3': '加载机器人模型，然后点上面的「连接」',
+        'bridgeHelpNote': '示例把模型的所有关节按正弦驱动。接真实数据只需替换 values 那一行。旋转关节用弧度，平移关节用米。',
+        'bridgeCopy': '复制',
+        'bridgeCopied': '已复制',
+        'bridgeCopyFailed': '已选中，按 Ctrl+C',
+        'bridgeSnippetOrigin': '本页地址，必须校验，否则任何网页都能连上来',
+        'bridgeSnippetJoints': '页面回报的模型关节',
+        'bridgeSnippetValues': '换成真实数据',
 
         // 动画编辑器
         'autoKey': '自动关键帧',
@@ -204,6 +235,7 @@ export const translations = {
         'structure': 'Structure',
         'edit': 'Edit',
         'animation': 'Animation',
+        'bridge': 'Bridge',
         'help': 'Help',
         'theme': 'Theme',
         'language': 'Language',
@@ -215,6 +247,36 @@ export const translations = {
         'codeEditor': 'Editor',
         'animationEditor': 'Animation Editor',
         'animationExperimental': 'Experimental · In development',
+
+        // Local bridge
+        'bridgeTitle': 'Local Bridge',
+        'bridgeUrl': 'Server address',
+        'bridgeToken': 'Token (optional)',
+        'bridgeConnect': 'Connect',
+        'bridgeDisconnect': 'Disconnect',
+        'bridgeAutoReconnect': 'Auto reconnect',
+        'bridgeConnected': 'Connected',
+        'bridgeConnecting': 'Connecting…',
+        'bridgeDisconnected': 'Disconnected',
+        'bridgeError': 'Connection failed',
+        'bridgeRateIn': 'In',
+        'bridgeRateOut': 'Applied',
+        'bridgeDropped': 'Coalesced',
+        'bridgeMatched': 'Driven joints',
+        'bridgeUnknown': 'Not in model',
+        'bridgeUndriven': 'Not streamed',
+        'bridgeAwaitingHello': 'Waiting for the server to declare its joints.',
+        'bridgeHelp': 'How to use',
+        'bridgeHelpStep1': 'Install the dependency: <code>pip install "websockets&gt;=14"</code>',
+        'bridgeHelpStep2': 'Save the code below as <code>bridge.py</code> and run <code>python bridge.py</code>',
+        'bridgeHelpStep3': 'Load a robot model, then hit Connect above',
+        'bridgeHelpNote': 'The example drives every joint of the model with a sine wave. Swap the values line for real data. Rotational joints are radians, prismatic joints are metres.',
+        'bridgeCopy': 'Copy',
+        'bridgeCopied': 'Copied',
+        'bridgeCopyFailed': 'Selected - press Ctrl/Cmd+C',
+        'bridgeSnippetOrigin': 'this page; must be checked or any site could connect',
+        'bridgeSnippetJoints': 'joints of the loaded model',
+        'bridgeSnippetValues': 'replace with real data',
 
         // Animation editor
         'autoKey': 'Auto Key',
@@ -433,7 +495,7 @@ class I18n {
                 element.placeholder = text;
             } else {
                 // 如果包含HTML标签（如<br>），使用innerHTML
-                if (text.includes('<br>') || text.includes('<strong>')) {
+                if (text.includes('<br>') || text.includes('<strong>') || text.includes('<code>')) {
                     element.innerHTML = text;
                 } else {
                     element.textContent = text;

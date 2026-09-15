@@ -286,6 +286,7 @@ export class UIController {
             'floating-files-panel': 'toggle-files-panel',
             'floating-joints-panel': 'toggle-joints-panel',
             'floating-model-tree': 'toggle-model-tree',
+            'floating-bridge-panel': 'toggle-bridge-panel',
             'floating-help-panel': 'help-button'
         };
 

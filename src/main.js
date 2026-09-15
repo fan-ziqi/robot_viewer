@@ -18,6 +18,7 @@ import { MujocoSimulationManager } from './renderer/MujocoSimulationManager.js';
 import { i18n } from './utils/i18n.js';
 import { PoseController } from './animation/runtime/PoseController.js';
 import { AnimationWorkspace } from './animation/ui/AnimationWorkspace.js';
+import { BridgePanel } from './bridge/ui/BridgePanel.js';
 
 // Expose d3 globally for PanelManager
 window.d3 = d3;
@@ -107,6 +108,27 @@ class App {
     }
 
     /**
+     * Pause a running MuJoCo simulation so a remote joint stream is not fought
+     * over, and bring the model itself back on screen (simulation hides it).
+     */
+    suspendMujocoForBridge() {
+        if (!this.mujocoSimulationManager?.isSimulating) return;
+
+        this.mujocoSimulationManager.pauseSimulation();
+        if (this.currentModel?.threeObject) {
+            this.currentModel.threeObject.visible = true;
+        }
+
+        const simulateBtn = document.getElementById('mujoco-simulate-btn-bar');
+        simulateBtn?.classList.remove('active');
+        const span = simulateBtn?.querySelector('span');
+        if (span) {
+            span.textContent = window.i18n?.t('mujocoSimulate') || 'Simulate';
+            span.setAttribute('data-i18n', 'mujocoSimulate');
+        }
+    }
+
+    /**
      * Initialize application
      */
     async init() {
@@ -174,6 +196,14 @@ class App {
                 this.panelManager.setModelGraphView(this.modelGraphView);
             }
 
+            // Live joint stream from a local service (see examples/bridge_server.py).
+            // Created before UIController so its shared panel wiring picks the panel up.
+            this.bridgePanel = new BridgePanel({
+                poseController: this.poseController,
+                panelManager: this.panelManager
+            });
+            window.bridgePanel = this.bridgePanel;
+
             // Initialize UI controller
             this.uiController = new UIController(this.sceneManager);
             this.uiController.setupAll({
@@ -191,6 +221,14 @@ class App {
                 poseController: this.poseController
             });
             window.animationWorkspace = this.animationWorkspace;
+
+            // A running MuJoCo simulation writes the same joints every step, so an
+            // incoming stream would be overwritten frame by frame. The stream wins.
+            this.bridgePanel.bridge.subscribe((event) => {
+                if (event.type === 'status' && event.status === 'connected') {
+                    this.suspendMujocoForBridge();
+                }
+            });
 
             // Set measurement update callback
             this.sceneManager.onMeasurementUpdate = () => {
@@ -893,6 +931,7 @@ class App {
     handleLanguageChanged(lang) {
         i18n.setLanguage(lang);
         this.animationWorkspace?.refreshLanguage();
+        this.bridgePanel?.refreshLanguage();
 
         // Update code editor save status text
         if (this.codeEditorManager) {

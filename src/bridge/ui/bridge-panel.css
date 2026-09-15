@@ -1,0 +1,312 @@
+/* Sits to the left of #floating-model-tree (360px wide, 20px from the right). */
+#floating-bridge-panel {
+    top: 80px;
+    left: calc(100vw - 360px - 340px - 40px);
+    width: 340px;
+    max-height: calc(100vh - 120px);
+    transition: all 0.4s var(--spring);
+}
+
+.bridge-content {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* ------------------------------------------------------------------ status */
+
+.bridge-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.bridge-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--text-tertiary);
+    transition: background 0.25s var(--spring), box-shadow 0.25s var(--spring);
+}
+
+.bridge-dot[data-status="connected"] {
+    background: #30d158;
+    box-shadow: 0 0 0 3px rgba(48, 209, 88, 0.18);
+}
+
+.bridge-dot[data-status="connecting"] {
+    background: #ffd60a;
+    animation: bridge-pulse 1s ease-in-out infinite;
+}
+
+.bridge-dot[data-status="error"] {
+    background: #ff453a;
+    box-shadow: 0 0 0 3px rgba(255, 69, 58, 0.18);
+}
+
+@keyframes bridge-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+
+.bridge-status-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ fields */
+
+.bridge-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.bridge-field > span {
+    font-size: 11px;
+    color: var(--text-tertiary);
+}
+
+.bridge-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-family: inherit;
+    color: var(--text-primary);
+    background: rgba(127, 127, 127, 0.12);
+    border: 0.5px solid var(--glass-border);
+    border-radius: 8px;
+    outline: none;
+    transition: border-color 0.2s var(--spring), background 0.2s var(--spring);
+}
+
+.bridge-input:focus {
+    border-color: var(--accent);
+    background: var(--accent-secondary);
+}
+
+.bridge-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.bridge-connect {
+    min-width: 96px;
+}
+
+.bridge-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    cursor: pointer;
+}
+
+.bridge-checkbox input {
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+/* ------------------------------------------------------------------- stats */
+
+.bridge-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    padding: 10px;
+    border-radius: 10px;
+    background: rgba(127, 127, 127, 0.08);
+}
+
+.bridge-stats > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 10px;
+    color: var(--text-tertiary);
+}
+
+.bridge-stats b {
+    font-size: 15px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+}
+
+/* ----------------------------------------------------------------- mapping */
+
+.bridge-mapping {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.bridge-map-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 5px 8px;
+    border-radius: 7px;
+    font-size: 11px;
+    background: rgba(127, 127, 127, 0.08);
+}
+
+.bridge-map-row b {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+}
+
+.bridge-map-row.ok b { color: #30d158; }
+.bridge-map-row.warn b { color: #ff9f0a; }
+.bridge-map-row.muted { color: var(--text-tertiary); }
+
+.bridge-names {
+    padding: 0 8px;
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--text-tertiary);
+    word-break: break-all;
+}
+
+.bridge-hint {
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-tertiary);
+}
+
+/* Toolbar button carries a dot while a stream is live. */
+#toggle-bridge-panel.bridge-live .tool-button-text::after {
+    content: '';
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin-left: 5px;
+    vertical-align: middle;
+    border-radius: 50%;
+    background: #30d158;
+}
+
+/* -------------------------------------------------------------- help block */
+
+.bridge-help-section {
+    border-top: 0.5px solid var(--glass-border);
+    padding-top: 12px;
+}
+
+.bridge-help-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 0;
+    font-family: inherit;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: color 0.2s var(--spring);
+}
+
+.bridge-help-toggle:hover {
+    color: var(--text-primary);
+}
+
+.bridge-caret {
+    font-size: 9px;
+    line-height: 1;
+}
+
+.bridge-help {
+    margin-top: 10px;
+}
+
+.bridge-help[hidden] {
+    display: none;
+}
+
+.bridge-steps {
+    margin: 0 0 10px;
+    padding-left: 18px;
+    font-size: 11px;
+    line-height: 1.65;
+    color: var(--text-secondary);
+}
+
+.bridge-steps code {
+    padding: 1px 4px;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10px;
+    background: rgba(127, 127, 127, 0.16);
+}
+
+.bridge-code-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border: 0.5px solid var(--glass-border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10px;
+    color: var(--text-tertiary);
+    background: rgba(127, 127, 127, 0.1);
+}
+
+.bridge-copy {
+    padding: 2px 8px;
+    font-family: inherit;
+    font-size: 10px;
+    color: var(--text-secondary);
+    background: rgba(127, 127, 127, 0.16);
+    border: 0.5px solid var(--glass-border);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 0.2s var(--spring), color 0.2s var(--spring);
+}
+
+.bridge-copy:hover {
+    color: var(--text-primary);
+    background: var(--accent-secondary);
+}
+
+/* Only scrolls sideways: a second vertical scroller nested inside the panel's
+   own is miserable to use, so long snippets extend the panel content instead. */
+.bridge-code {
+    margin: 0;
+    padding: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border: 0.5px solid var(--glass-border);
+    border-radius: 0 0 8px 8px;
+    background: rgba(127, 127, 127, 0.08);
+}
+
+.bridge-code code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+    white-space: pre;
+    tab-size: 4;
+}
+
+.bridge-help-note {
+    margin: 8px 0 0;
+    font-size: 10px;
+    line-height: 1.55;
+    color: var(--text-tertiary);
+}
