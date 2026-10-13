@@ -1037,36 +1037,26 @@ export class MJCFAdapter {
             case 'cylinder':
             case 'capsule':
                 // Handle fromto attribute for capsule/cylinder
-                const fromto = geomEl.getAttribute('fromto');
+                const fromtoValues = this.parseFromto(geomEl.getAttribute('fromto'));
                 const radiusAttr = geomEl.getAttribute('size');
                 
-                if (fromto) {
-                    const ft = fromto.split(' ').map(parseFloat);
-                    if (ft.length >= 6) {
-                        const p1 = new THREE.Vector3(ft[0], ft[1], ft[2]);
-                        const p2 = new THREE.Vector3(ft[3], ft[4], ft[5]);
-                        const center = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
-                        const height = p1.distanceTo(p2);
-                        
-                        // Calculate rotation to align cylinder/capsule with the fromto vector
-                        const direction = new THREE.Vector3().subVectors(p2, p1).normalize();
-                        const defaultDir = new THREE.Vector3(0, 1, 0); // Default cylinder axis is Y
-                        const quaternion = new THREE.Quaternion().setFromUnitVectors(defaultDir, direction);
-                        const euler = new THREE.Euler().setFromQuaternion(quaternion);
-                        
-                        // Store fromto data
-                        geometry.fromto = {
-                            p1: [ft[0], ft[1], ft[2]],
-                            p2: [ft[3], ft[4], ft[5]],
-                            center: [center.x, center.y, center.z],
-                            height: height,
-                            rpy: [euler.x, euler.y, euler.z]
-                        };
-                        
-                        // Parse radius - for fromto, size is just radius
-                        const radiusVal = parseFloat(radiusAttr || '0.01');
-                        geometry.size = { radius: radiusVal, height: height };
-                    }
+                if (fromtoValues) {
+                    const p1 = fromtoValues.slice(0, 3);
+                    const p2 = fromtoValues.slice(3, 6);
+                    const frame = this.computeFromtoFrame(p1, p2);
+
+                    // Store fromto data
+                    geometry.fromto = {
+                        p1: p1,
+                        p2: p2,
+                        center: frame.center,
+                        height: frame.height,
+                        quaternion: frame.quaternion
+                    };
+
+                    // Parse radius - for fromto, size is just radius
+                    const radiusVal = parseFloat(radiusAttr || '0.01');
+                    geometry.size = { radius: radiusVal, height: frame.height };
                 } else if (radiusAttr) {
                     const radii = radiusAttr.split(' ').map(parseFloat);
                     // MJCF cylinder/capsule size is [radius, half-height], height needs to be multiplied by 2
@@ -1108,6 +1098,58 @@ export class MJCFAdapter {
         }
 
         return geometry;
+    }
+
+    /**
+     * Parse an MJCF `fromto` attribute ("x1 y1 z1 x2 y2 z2") into numbers.
+     * Runs of whitespace - including newlines in hand formatted files - are
+     * collapsed, and malformed values are rejected instead of turning into NaN.
+     *
+     * @param {string|null} value - Raw attribute value
+     * @returns {number[]|null} Six finite numbers, or null when unusable
+     */
+    static parseFromto(value) {
+        if (!value || typeof value !== 'string') return null;
+
+        const values = value.trim().split(/\s+/).map(Number);
+        if (values.length < 6 || !values.every(Number.isFinite)) return null;
+
+        return values.slice(0, 6);
+    }
+
+    /**
+     * Compute the placement of a cylinder/capsule geom defined by an MJCF
+     * `fromto` attribute.
+     *
+     * [Important] createGeometryMesh() builds cylinder/capsule geometries along
+     * +Y and then calls geometry.rotateX(Math.PI/2), so their long axis in local
+     * space is +Z, which is also MJCF's native geom axis. The returned
+     * quaternion maps that +Z axis onto the fromto direction. Aligning from +Y
+     * instead rotated every fromto geom 90 degrees off.
+     *
+     * @param {number[]} p1 - First end point, in the parent body frame
+     * @param {number[]} p2 - Second end point, in the parent body frame
+     * @returns {{center: number[], height: number, quaternion: number[]}}
+     */
+    static computeFromtoFrame(p1, p2) {
+        const start = new THREE.Vector3().fromArray(p1);
+        const end = new THREE.Vector3().fromArray(p2);
+        const height = start.distanceTo(end);
+        const center = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+
+        // A zero length fromto has no direction to align with; keep the geom at
+        // its default orientation instead of relying on a degenerate normalize.
+        const quaternion = new THREE.Quaternion();
+        if (height > 1e-9) {
+            const direction = new THREE.Vector3().subVectors(end, start).divideScalar(height);
+            quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction);
+        }
+
+        return {
+            center: center.toArray(),
+            height: height,
+            quaternion: quaternion.toArray()
+        };
     }
 
     /**
@@ -1764,10 +1806,8 @@ export class MJCFAdapter {
                         mesh.position.set(...visual.geometry.fromto.center);
                         // Apply fromto rotation plus any explicit origin
                         // rotation using quaternion composition.
-                        const fromtoRpy = visual.geometry.fromto.rpy;
-                        mesh.quaternion.setFromEuler(
-                            new THREE.Euler(fromtoRpy[0], fromtoRpy[1], fromtoRpy[2], 'ZYX')
-                        );
+                        const fromtoQuat = visual.geometry.fromto.quaternion;
+                        mesh.quaternion.set(fromtoQuat[0], fromtoQuat[1], fromtoQuat[2], fromtoQuat[3]);
                         mesh.quaternion.multiply(this.getOriginQuaternion(visual.origin));
                     } else {
                         this.applyOriginTransform(mesh, visual.origin);
@@ -1891,10 +1931,8 @@ export class MJCFAdapter {
                         mesh.position.set(...collision.geometry.fromto.center);
                         // Apply fromto rotation plus any explicit origin
                         // rotation using quaternion composition.
-                        const fromtoRpy = collision.geometry.fromto.rpy;
-                        mesh.quaternion.setFromEuler(
-                            new THREE.Euler(fromtoRpy[0], fromtoRpy[1], fromtoRpy[2], 'ZYX')
-                        );
+                        const fromtoQuat = collision.geometry.fromto.quaternion;
+                        mesh.quaternion.set(fromtoQuat[0], fromtoQuat[1], fromtoQuat[2], fromtoQuat[3]);
                         mesh.quaternion.multiply(this.getOriginQuaternion(collision.origin));
                     } else {
                         this.applyOriginTransform(mesh, collision.origin);

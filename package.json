@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test tests/animation/*.test.js"
+    "test": "node --test tests/animation/*.test.js tests/mjcf/*.test.js"
   },
   "keywords": [
     "robot",
