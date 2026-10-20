@@ -38,6 +38,8 @@ export class VisualizationManager {
         // First pass: ensure all materials are properly set up (especially for DAE/STL files loaded asynchronously)
         // This ensures materials have original properties saved AND enhanced lighting applied
         model.threeObject.traverse((child) => {
+            // Viewer helpers (axes, COM, inertia) are not robot geometry
+            if (VisualizationManager.isVisualizationHelper(child)) return;
             if (child.isMesh && child.material) {
                 const materials = Array.isArray(child.material) ? child.material : [child.material];
                 const processedMaterials = [];
@@ -170,6 +172,8 @@ export class VisualizationManager {
 
         // Step 3: Collect all visual meshes (materials already processed in first pass)
         model.threeObject.traverse((child) => {
+            // Viewer helpers (axes, COM, inertia) are not robot geometry
+            if (VisualizationManager.isVisualizationHelper(child)) return;
             if (child.isMesh || child.type === 'Mesh') {
                 // Check if self or parent is a collider
                 let isInCollider = false;
@@ -201,6 +205,8 @@ export class VisualizationManager {
 
         // First pass: Process materials for visual meshes only (skip collision meshes)
         model.threeObject.traverse((child) => {
+            // Viewer helpers (axes, COM, inertia) are not robot geometry
+            if (VisualizationManager.isVisualizationHelper(child)) return;
             if (child.isMesh && child.material) {
                 // Check if this is a collision mesh
                 let isInCollider = false;
@@ -313,6 +319,8 @@ export class VisualizationManager {
 
         // Second pass: Add newly loaded visual meshes or collision meshes
         model.threeObject.traverse((child) => {
+            // Viewer helpers (axes, COM, inertia) are not robot geometry
+            if (VisualizationManager.isVisualizationHelper(child)) return;
 
             // Add newly loaded visual meshes or collision meshes
             if ((child.isMesh || child.type === 'Mesh') && !this.visualMeshes.includes(child) && !this.collisionMeshes.includes(child)) {
@@ -436,6 +444,8 @@ export class VisualizationManager {
         // This is critical because DAE files may have nested Groups and material arrays
         if (this.sceneManager && this.sceneManager.currentModel && this.sceneManager.currentModel.threeObject) {
             this.sceneManager.currentModel.threeObject.traverse((child) => {
+                // Viewer helpers (axes, COM, inertia) are not robot geometry
+                if (VisualizationManager.isVisualizationHelper(child)) return;
                 if (child.isMesh && child.material && !this.collisionMeshes.includes(child)) {
                     // Handle material arrays (common in DAE files with multiple materials)
                     const materials = Array.isArray(child.material) ? child.material : [child.material];
@@ -819,6 +829,19 @@ export class VisualizationManager {
         if (obj.userData?.isCOMMarker) return true;
         if (obj.userData?.isCollision) return true;
 
+        return false;
+    }
+
+    /**
+     * Check if object belongs to a viewer helper (link axes, joint axes, COM, inertia)
+     * Helpers are parented into the robot tree so they follow joint motion, but they
+     * are not robot geometry. The flag sits on the helper's root group, so walk up.
+     * Any new helper added under the robot tree must set userData.isVisualization.
+     */
+    static isVisualizationHelper(obj) {
+        for (let node = obj; node; node = node.parent) {
+            if (node.userData?.isVisualization) return true;
+        }
         return false;
     }
 

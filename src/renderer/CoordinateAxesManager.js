@@ -184,6 +184,7 @@ export class CoordinateAxesManager {
         const axesGroup = new THREE.Group();
         axesGroup.name = `${linkName}_axes`;
         axesGroup.userData.excludeFromBounds = true;
+        axesGroup.userData.isVisualization = true; // Not robot geometry (see VisualizationManager)
 
         // Create three axes, thickness proportional to length
         const axisRadius = Math.max(0.001, axesSize * 0.015); // 1.5% of length, minimum 1mm
@@ -254,6 +255,7 @@ export class CoordinateAxesManager {
         // Create joint axis helper (arrow)
         const axisGroup = new THREE.Group();
         axisGroup.name = `jointAxis_${jointName}`;
+        axisGroup.userData.isVisualization = true; // Not robot geometry (see VisualizationManager)
 
         // Get joint rotation axis direction (local coordinate system)
         let localAxisDirection = new THREE.Vector3(0, 0, 1); // Default Z axis

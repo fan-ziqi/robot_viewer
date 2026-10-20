@@ -226,6 +226,7 @@ export class InertialVisualization {
 
         // Mark this as center of mass
         comGroup.userData.isCenterOfMass = true;
+        comGroup.userData.isVisualization = true; // Not robot geometry (see VisualizationManager)
 
         comGroup.position.copy(position);
         comGroup.visible = this.showCOM;
@@ -329,6 +330,7 @@ export class InertialVisualization {
         // Allow raycasting so inertia box can be selected for dragging
         // Mark as inertia box
         inertiaBox.userData.isInertiaBox = true;
+        inertiaBox.userData.isVisualization = true; // Not robot geometry (see VisualizationManager)
 
         const linkObject = this.findLinkObject(model.threeObject, link.name);
         if (linkObject) {
